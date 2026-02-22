@@ -1,0 +1,114 @@
+HOW SCORES ARE CALCULATED — EASY EXPLANATION
+=============================================
+(For the SwipeCard on the Approve Leads page)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHERE DOES THE DATA COME FROM?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+All scores are fetched FROM MongoDB at runtime.
+Nothing is hardcoded. They are NOT stored separately —
+they are CALCULATED in the frontend (ApproveLeads.tsx)
+every time the page loads using the raw MongoDB fields.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. VECTOR SCORE (shown in blue)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MongoDB Field Used: Intent_Score
+
+Formula:
+  Vector Score = Intent_Score × 100
+
+Example for BUY_33049:
+  Intent_Score in MongoDB = 0.92
+  Vector Score shown = 0.92 × 100 = 92.0
+
+Why? Intent_Score in MongoDB is stored as a 0–1 value.
+We multiply by 100 to show it as a percentage-style score.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. INTENT SCORE (shown in purple)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MongoDB Field Used: Intent_Score (same field as above)
+
+Formula:
+  Intent Score = Intent_Score × 100
+
+Example:
+  Intent_Score = 0.92 → shows 92.0
+
+Note: Currently Vector Score and Intent Score use the
+same MongoDB field (Intent_Score). You can separate
+them later if you add a different vector/embedding score
+from your ML pipeline.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. MOMENTUM (shown in orange)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MongoDB Field Used: Response_Probability
+
+Formula:
+  Momentum = Response_Probability × 100
+
+Example for BUY_33049:
+  Response_Probability in MongoDB = 0.68
+  Momentum shown = 0.68 × 100 = 68.0
+
+Why Response_Probability? It measures how likely the
+buyer is to respond to outreach — basically the
+"momentum" of engagement. Higher = more likely to act.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. MATCH % (the ring at top-right of card)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MongoDB Fields Used: Intent_Score + Response_Probability
+
+Formula:
+  Match % = ((Intent_Score + Response_Probability) / 2) × 100
+
+Example for BUY_33049:
+  Intent_Score       = 0.92
+  Response_Probability = 0.68
+  Average            = (0.92 + 0.68) / 2 = 0.80
+  Match %            = 0.80 × 100 = 80%
+
+In plain English:
+  "We take how interested the buyer is (Intent)
+   and how likely they are to respond (Response),
+   average them, and show that as a match percentage."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IS THE 80% STORED OR CALCULATED?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CALCULATED at runtime — it is NOT stored in MongoDB.
+
+Every time the Approve Leads page loads:
+  Step 1: Frontend calls /leads API → gets raw MongoDB docs
+  Step 2: For each lead, frontend JS calculates the scores
+  Step 3: Card renders with those computed values
+
+The MongoDB only stores the raw fields:
+  Intent_Score, Response_Probability, Prompt_Response,
+  Revenue_Size_USD, Team_Size, etc.
+
+The frontend does the math on the fly.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+QUICK REFERENCE TABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Card Field         MongoDB Field            Formula
+──────────         ─────────────            ───────
+Vector Score   →   Intent_Score         ×  100
+Intent Score   →   Intent_Score         ×  100
+Momentum       →   Response_Probability ×  100
+Match %        →   avg(Intent + Response)  × 100
+Team Size      →   Team_Size               (raw)
+Revenue        →   Revenue_Size_USD        /1M → $XM
+Priority Sigs  →   Tariff_News, Funding_Event,
+                   DecisionMaker_Change,
+                   Engagement_Spike, etc.  (binary flags)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CODE LOCATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+File: frontend/src/app/pages/ApproveLeads.tsx
+Lines ~34–100 (inside the formatted = data.map(...) block)
