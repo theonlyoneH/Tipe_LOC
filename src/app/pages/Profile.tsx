@@ -3,7 +3,7 @@ import { User, Mail, Building, Globe, Bell, Shield, Key, FileText } from 'lucide
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 
-const API = "http://10.120.101.22:8005";
+const API = import.meta.env.VITE_API_URL;
 
 export function Profile() {
   const [userData, setUserData] = useState({

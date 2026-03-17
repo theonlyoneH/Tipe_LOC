@@ -41,28 +41,10 @@ export function Layout() {
     };
 
     loadSignals();
-    const interval = setInterval(loadSignals, 30000);
+    const interval = setInterval(loadSignals, 60000);
 
     return () => clearInterval(interval);
   }, []);
-  //  useEffect(() => {
-  //   const fetchTradeSignals = async () => {
-  //     try {
-  //       const res = await fetch(
-  //         "http://localhost:8000/news/trade_signals_output.json",
-  //         { cache: "no-store" }
-  //       );
-  //       const data = await res.json();
-  //       setTradeSignals(data);
-  //     } catch (error) {
-  //       console.error("Failed to load trade signals:", error);
-  //     }
-  //   };
-
-  //   fetchTradeSignals();
-  //   const interval = setInterval(fetchTradeSignals, 60000);
-  //   return () => clearInterval(interval);
-  // }, []);
 
 
   const location = useLocation();

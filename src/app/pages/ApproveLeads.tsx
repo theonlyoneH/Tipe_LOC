@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 
 type LeadStatus = 'pending' | 'approved' | 'rejected' | 'skipped';
 
-const API = "http://10.120.101.22:8005";
+const API = import.meta.env.VITE_API_URL;
 
 export function ApproveLeads() {
   const { leads, updateLeadStatus, setLeads } = useStore();

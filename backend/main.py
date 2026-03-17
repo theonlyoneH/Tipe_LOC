@@ -6,9 +6,13 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional
 import os
+import feedparser
 from dotenv import load_dotenv
 from jose import jwt
 from bson import ObjectId
+import threading
+from pinecone import Pinecone
+import google.generativeai as genai
 load_dotenv()
 
 app = FastAPI()
@@ -21,6 +25,82 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -----------------------------
+# Gemini Setup (Round Robin)
+# -----------------------------
+GEMINI_API_KEYS = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
+
+key_index = 0
+key_lock = threading.Lock()
+
+def get_next_model():
+    global key_index
+    with key_lock:
+        api_key = GEMINI_API_KEYS[key_index]
+        key_index = (key_index + 1) % len(GEMINI_API_KEYS)
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("gemini-2.5-flash")
+
+
+# -----------------------------
+# Pinecone Setup
+# -----------------------------
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+index = pc.Index(os.getenv("PINECONE_INDEX"))
+
+ALL_NAMESPACES = {
+    "exporters": "exporter",
+    "importers": "importer",
+    "globalnews": "news"
+}
+
+def detect_namespaces(query):
+    q = query.lower()
+
+    keyword_map = {
+        "exporters": [
+            "exporter", "export", "supplier", "manufacturer",
+            "expoter", "exportor", "suplier", "manufaturer", "manfacturer"
+        ],
+
+        "importers": [
+            "importer", "import", "buyer", "procurement",
+            "impoter", "importor", "byer", "procument", "procuremnet"
+        ],
+
+        "globalnews": [
+            "news", "trade", "market", "tariff", "policy",
+            "newz", "trad", "markit", "tarrif", "polcy"
+        ]
+    }
+
+    matched = [ns for ns, keywords in keyword_map.items() if any(k in q for k in keywords)]
+
+    return matched if matched else list(ALL_NAMESPACES.keys())
+
+
+def retrieve(query):
+    namespaces = detect_namespaces(query)
+    all_hits = []
+
+    for ns in namespaces:
+        try:
+            res = index.search(
+                namespace=ns,
+                query={"inputs": {"text": query}, "top_k": 10}
+            )
+            hits = res.get("result", {}).get("hits", [])
+            for h in hits:
+                h["_namespace"] = ns
+                h["_record_type"] = ALL_NAMESPACES[ns]
+            all_hits.extend(hits)
+        except Exception as e:
+            print("Pinecone error:", e)
+
+    all_hits.sort(key=lambda x: x.get("_score", 0), reverse=True)
+    return all_hits, namespaces
+
 
 # MongoDB Configuration
 MONGO_DETAILS = os.getenv("MONGO_DETAILS", "mongodb://localhost:27017")
@@ -142,13 +222,54 @@ async def update_profile(email: str, update_data: UpdateUserSchema = Body(...)):
     await user_collection.update_one({"email": email}, {"$set": update_dict})
     return {"message": "Profile updated successfully"}
 
-# Dummy chat endpoint to maintain compatibility with existing frontend
+
+def generate_answer(query, results, namespaces):
+    if not results:
+        return "No relevant trade data found."
+
+    context = ""
+    for r in results[:5]:
+        context += f"{r.get('fields', {})}\n"
+
+    prompt = f"""
+    You are TIPE AI.
+
+    User Query:
+    {query}
+
+    Data:
+    {context}
+
+    Give a clear trade insight summary.
+    """
+
+    try:
+        model = get_next_model()
+        res = model.generate_content(prompt)
+        return res.text.strip()
+    except Exception as e:
+        return f"AI Error: {str(e)}"
+    
 @app.post("/chat")
 async def chat_endpoint(payload: dict = Body(...)):
     query = payload.get("query", "")
-    # This is a placeholder for the actual AI logic
-    return {"response": f"I received your query: {query}. How can I assist you with your export growth?"}
 
+    if not query:
+        raise HTTPException(status_code=400, detail="Query required")
+
+    try:
+        results, namespaces = retrieve(query)
+        answer = generate_answer(query, results, namespaces)
+
+        return {
+            "response": answer
+        }
+
+    except Exception as e:
+        print("Chat error:", e)
+        return {
+            "response": "⚠️ Error processing your request"
+        }
 @app.get("/leads")
 async def get_leads(industry: str, user_email: Optional[str] = None):
     if not industry:
@@ -171,7 +292,11 @@ async def get_leads(industry: str, user_email: Optional[str] = None):
 
     leads = []
     # Sort by rank descending — highest ranked leads appear first
-    cursor = database.importers.find(query).sort("rank", -1)
+    cursor = database.importers.find(query).sort([
+    ("rank", -1),
+    ("Response_Probability", -1),
+    ("Intent_Score", -1)
+])
 
     async for lead in cursor:
         lead["_id"] = str(lead["_id"])
@@ -219,8 +344,193 @@ async def get_approved_leads(user_email: str):
     async for lead in cursor:
         lead["_id"] = str(lead["_id"])
         leads.append(lead)
-
     return leads
+
+# Industry keyword mapping (IMPORTANT)
+INDUSTRY_KEYWORDS = {
+    "textiles": [
+        "textile", "fabric", "cotton", "yarn", "garment", "apparel",
+        "knitwear", "weaving", "spinning", "dyeing", "fashion export",
+        "cloth", "polyester", "denim", "silk", "wool"
+    ],
+
+    "pharma": [
+        "pharma", "drug", "medicine", "biotech", "vaccine",
+        "clinical trial", "api", "formulation", "fda", "healthcare",
+        "generic drug", "biosimilar", "pharmaceutical export"
+    ],
+
+    "automobile": [
+        "car", "auto", "vehicle", "ev", "electric vehicle",
+        "automobile", "automotive", "car export", "auto parts",
+        "battery", "charging station", "mobility"
+    ],
+
+    "electronics": [
+        "electronics", "semiconductor", "chip", "pcb", "consumer electronics",
+        "mobile", "smartphone", "laptop", "display", "microchip",
+        "electronics export", "hardware", "device"
+    ],
+
+    "agriculture": [
+        "agriculture", "farming", "crop", "wheat", "rice",
+        "grain", "harvest", "fertilizer", "pesticide",
+        "agri export", "food grain", "farm produce"
+    ],
+
+    "steel": [
+        "steel", "iron", "metal", "alloy", "steel export",
+        "construction steel", "scrap metal", "metal industry",
+        "mining", "ore"
+    ],
+
+    "oil_gas": [
+        "oil", "gas", "petroleum", "crude oil", "lng",
+        "refinery", "energy export", "fuel", "diesel",
+        "natural gas", "opec"
+    ],
+
+    "logistics": [
+        "logistics", "shipping", "freight", "container",
+        "supply chain", "port", "cargo", "shipping rates",
+        "warehouse", "distribution", "last mile delivery"
+    ],
+
+    "fmcg": [
+        "fmcg", "consumer goods", "retail", "packaged goods",
+        "personal care", "home care", "food products",
+        "beverages", "brand", "supermarket"
+    ],
+
+    "food": [
+        "food export", "processed food", "dairy",
+        "meat export", "seafood", "spices", "edible oil",
+        "sugar", "tea", "coffee"
+    ],
+
+    "chemicals": [
+        "chemical", "specialty chemicals", "petrochemical",
+        "fertilizer", "industrial chemical", "plastic",
+        "polymer", "resin", "coating"
+    ],
+
+    "construction": [
+        "construction", "infrastructure", "real estate",
+        "cement", "building material", "contractor",
+        "housing", "urban development"
+    ],
+
+    "energy": [
+        "renewable energy", "solar", "wind energy",
+        "green energy", "power generation", "electricity",
+        "battery storage", "energy transition"
+    ],
+
+    "mining": [
+        "mining", "coal", "iron ore", "gold",
+        "minerals", "extraction", "mineral export"
+    ],
+
+    "defense": [
+        "defense", "military", "weapons", "aerospace",
+        "defense export", "missile", "fighter jet"
+    ],
+
+    "aerospace": [
+        "aviation", "aircraft", "aerospace",
+        "airline", "cargo plane", "boeing", "airbus"
+    ],
+
+    "it": [
+        "software", "it services", "technology",
+        "saas", "cloud", "ai", "cybersecurity",
+        "data center", "digital transformation"
+    ],
+
+    "finance": [
+        "banking", "finance", "investment",
+        "stock market", "inflation", "interest rate",
+        "trade finance", "currency"
+    ],
+
+    "retail": [
+        "retail", "ecommerce", "shopping",
+        "consumer demand", "online retail",
+        "marketplace", "store"
+    ],
+
+    "default": [
+        "trade", "export", "import", "logistics",
+        "supply chain", "global trade", "tariff",
+        "trade agreement", "customs", "shipment"
+    ]
+}
+
+@app.get("/trade-news")
+async def get_trade_news(industry: str = "default"):
+    try:
+        feeds = [
+            "https://feeds.reuters.com/reuters/businessNews",
+            "http://feeds.bbci.co.uk/news/business/rss.xml",
+            
+        ]
+
+        keywords = INDUSTRY_KEYWORDS.get(industry.lower(), INDUSTRY_KEYWORDS["default"])
+
+        articles = []
+
+        for url in feeds:
+            feed = feedparser.parse(url)
+
+            for entry in feed.entries:
+                title = entry.title.lower()
+                summary = entry.get("summary", "").lower()
+
+                # 🔥 Base score (everyone gets included)
+                score = 0.5  
+
+                # ✅ Industry relevance boost (NOT strict filter anymore)
+                if any(k in title or k in summary for k in keywords):
+                    score += 0.2
+
+                # 🎯 Trade signals
+                if "export" in title or "import" in title:
+                    score += 0.2
+                if "surge" in title or "growth" in title:
+                    score += 0.1
+                if "ban" in title or "crisis" in title:
+                    score += 0.1
+
+                score = round(min(score, 0.95), 2)
+
+                articles.append({
+                    "headline": entry.title,
+                    "url": entry.link,
+                    "published": entry.get("published", ""),
+                    "source": url,
+                    "ai_analysis": {
+                        "trade_signal_score": score,
+                        "importance_tag": (
+                            "High Impact" if score >= 0.75 else
+                            "Moderate" if score >= 0.6 else
+                            "Low"
+                        )
+                    }
+                })
+
+        # 🔥 Sort by score (best first)
+        articles = sorted(
+            articles,
+            key=lambda x: x["ai_analysis"]["trade_signal_score"],
+            reverse=True
+        )
+
+        # 🔥 Limit results
+        return articles[:15]
+
+    except Exception as e:
+        print("Trade news error:", e)
+        return []   
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8005)

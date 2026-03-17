@@ -1,4 +1,4 @@
-const BASE_URL = "http://10.120.101.22:8000";
+const BASE_URL = import.meta.env.VITE_API_URL;
 
 export const sendChatMessage = async (message: string) => {
   const response = await fetch(`${BASE_URL}/chat`, {
@@ -7,7 +7,7 @@ export const sendChatMessage = async (message: string) => {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: message, // ⚠️ MUST match FastAPI
+      query: message, // must match FastAPI
     }),
   });
 

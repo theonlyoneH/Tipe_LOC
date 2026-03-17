@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate, Link } from "react-router";
 import { Sparkles, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 
-const API = import.meta.env.VITE_API_URL || "http://10.120.101.22:8005";
+const API = import.meta.env.VITE_API_URL;
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");

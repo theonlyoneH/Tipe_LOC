@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { motion, AnimatePresence } from 'motion/react';
 import { KPICard } from '../components/KPICard';
 
-const API = "http://10.120.101.22:8005";
+const API = import.meta.env.VITE_API_URL;
 
 // Country → flag emoji map
 const countryFlags: Record<string, string> = {

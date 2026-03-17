@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Search, Mail, Phone, ExternalLink, Shield } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
-const API = "http://10.120.101.22:8005";
+const API = import.meta.env.VITE_API_URL;
 
 export function ApprovedLeads() {
   const { approvedLeads, setApprovedLeads } = useStore();

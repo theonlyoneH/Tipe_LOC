@@ -1,10 +1,9 @@
-const BASE_URL = "http://10.120.113.124:8000";
-
+const BASE_URL = import.meta.env.VITE_API_URL;
 
 export const fetchTradeSignals = async () => {
   try {
     const res = await fetch(
-      `${BASE_URL}/trade_signals_output.json`,
+      `${BASE_URL}/trade-news`, 
       { cache: "no-store" }
     );
 
