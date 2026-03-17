@@ -1,236 +1,99 @@
 # 🚀 TIPE - Trade Intent Prediction Engine
 
-## Overview
+## 🌐 Live Access
+- **Frontend**: [https://tipe-theta.vercel.app/](https://tipe-theta.vercel.app/)
+- **Backend API**: [https://darshanpurohit-tipe-backend.hf.space/](https://darshanpurohit-tipe-backend.hf.space/)
+- **API Documentation**: [https://darshanpurohit-tipe-backend.hf.space/docs](https://darshanpurohit-tipe-backend.hf.space/docs)
 
-TIPE is an enterprise-grade AI-powered export matchmaking platform that transforms static trade listings into an adaptive, intent-driven, swipe-based global trade intelligence system. Built for hackathon excellence with a focus on innovation, user experience, and technical sophistication.
+## 🔐 Test Credentials
+Use these credentials to explore the platform:
+- **Email**: `test@gmail.com`
+- **Password**: `123456`
 
-## ✨ Key Features
+---
 
-### 🎯 Core Innovation
-- **AI-Powered Lead Ranking**: Vector similarity + Intent scoring + Trade momentum analysis
-- **Tinder-Style Swipe Interface**: Revolutionary swipe gestures for B2B lead approval
-- **Real-time Intelligence**: Optimistic UI updates with seamless backend synchronization
-- **Trust Layer**: Blockchain-verified firmographics with SHA-256 hashing
+## 📝 Overview
+TIPE is an enterprise-grade AI-powered export matchmaking platform that transforms static trade listings into an adaptive, intent-driven, swipe-based global trade intelligence system. Built for hackathon excellence, it leverages RAG (Retrieval-Augmented Generation) to connect exporters and importers with high precision.
 
-### 📊 Complete Platform
-1. **Dashboard**: KPI overview, pipeline visualization, channel performance
-2. **Approve Leads**: Swipe-based lead approval with physics-based gestures
-3. **Approved Leads**: Searchable lead database with quick actions
-4. **Conversations**: Multi-channel AI-powered chat management
-5. **Meetings**: Calendar integration with AI meeting summaries
-6. **Analytics**: Deep insights with interactive charts (ICP distribution, trends, segments)
-7. **Content Engine**: LinkedIn automation with AI-generated posts
-8. **Profile**: User management and security settings
+## ✨ Key Functionalities
+
+### 1. 🎯 AI-Powered Lead Discovery (RAG)
+- **Vector Search**: Semantic search across "exporters", "importers", and "news" using Pinecone.
+- **Tinder-Style Swipe**: Revolutionary B2B lead vetting with physics-based gestures (Right = Approve, Left = Reject, Up = Skip).
+- **Gemini Reasoning**: AI-generated explanations for *why* a lead matches your profile.
+
+### 2. 📊 Intelligence & Analytics
+- **Live Dashboard**: Real-time KPI tracking, pipeline visualization, and trade momentum indexing.
+- **Deep Analytics**: Interactive charts generated via Recharts showing ICP distribution and market segments.
+- **Trade Momentum Index**: A proprietary score combining vector similarity and intent signals.
+
+### 3. 💬 Automated Outreach & CRM
+- **Multi-channel Conversations**: Integrated management for LinkedIn, Email, and WhatsApp.
+- **AI-Handled Chats**: Toggle AI mode to let the engine handle initial outreach and lead qualification.
+- **Approved Leads CRM**: Searchable database of vetted leads with quick-action contact buttons.
+
+### 4. 📅 Meeting & Content Engine
+- **Smart Meetings**: Calendar integration with AI-generated meeting summaries.
+- **Content Engine**: AI-powered LinkedIn automation to generate and schedule high-engagement trade posts.
+
+### 5. 🛡️ Trust & Security
+- **Trust Layer**: Blockchain-verified firmographics (SHA-256 hashing) representing verified trade records.
+- **JWT Auth**: Secure session management with Bcrypt password hashing.
+
+---
 
 ## 🛠 Tech Stack
 
 ### Frontend
-- **React** with TypeScript
-- **React Router** for navigation
-- **Motion (Framer Motion)** for smooth animations
-- **Zustand** for state management
-- **TanStack Query** for data fetching
-- **Recharts** for data visualization
-- **Tailwind CSS v4** for styling
-- **Lucide React** for icons
+- **React 18** + TypeScript + Vite
+- **Zustand**: Global state management
+- **Framer Motion**: Gesture-driven animations
+- **Tailwind CSS v4**: Modern utility-first styling
+- **TanStack Query**: Optimistic UI updates and server state
 
-### Key Features
-- Production-ready architecture
-- Responsive design (desktop + mobile)
-- Enterprise SaaS UI/UX
-- Smooth page transitions
-- Physics-based swipe gestures
-- Skeleton loaders
-- Optimistic UI updates
-- Toast notifications
-
-## 📁 Project Structure
-
-```
-/src
-  /app
-    /components
-      - Layout.tsx              # Main layout with sidebar
-      - SwipeCard.tsx           # Core swipe card component
-      /ui                       # Reusable UI components
-    /pages
-      - Dashboard.tsx           # Overview & KPIs
-      - ApproveLeads.tsx        # Swipe interface
-      - ApprovedLeads.tsx       # Lead management
-      - Conversations.tsx       # Multi-channel chat
-      - Meetings.tsx            # Calendar & summaries
-      - Analytics.tsx           # Charts & insights
-      - ContentEngine.tsx       # LinkedIn automation
-      - Profile.tsx             # Settings
-    /store
-      - useStore.ts             # Zustand state management
-    /lib
-      - mockAPI.ts              # Mock API with realistic data
-    - routes.ts                 # Router configuration
-    - App.tsx                   # Root component
-  /styles
-    - theme.css                 # Design tokens
-    - tailwind.css              # Tailwind config
-```
-
-## 🎨 Design System
-
-### Colors
-- **Primary**: Deep blue gradient (#0f172a, #1e293b, #334155)
-- **Accent**: Blue to cyan gradients
-- **Status**: Green (approved), Red (rejected), Orange (scheduled)
-
-### Components
-- Rounded corners (rounded-xl, rounded-2xl)
-- Soft shadows (shadow-lg, shadow-xl)
-- Smooth transitions (300ms)
-- Gradient backgrounds
-- Glass morphism effects
-
-## 🔥 Standout Features for Hackathon
-
-1. **Tinder-Style Swipe Mechanics**
-   - Velocity-based detection
-   - Physics-based animations
-   - Stacked card depth effect
-   - Three-way swipe (left/right/up)
-
-2. **AI Intelligence Layer**
-   - Vector similarity scoring
-   - Intent signal analysis
-   - Trade momentum indexing
-   - AI reasoning explanations
-
-3. **Trust Verification**
-   - Blockchain-verified badges
-   - SHA-256 firmographic hashing
-   - Abstract complexity from users
-
-4. **Advanced Analytics**
-   - ICP match distribution
-   - Channel performance comparison
-   - Trend analysis
-   - Top performing segments
-
-5. **Content Automation**
-   - AI-generated LinkedIn posts
-   - Engagement metrics
-   - Scheduled publishing
-   - Draft management
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js 18+
-- npm or pnpm
-
-### Installation
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-The application will be available at `http://localhost:5173`
-
-## 📊 Mock Data
-
-The application includes rich mock data:
-- **50 AI-ranked leads** with vector scores
-- **3 active conversations** with message history
-- **3 meetings** (scheduled + completed)
-- **3 LinkedIn posts** (draft + scheduled + published)
-- **Analytics data** for charts and insights
-
-## 🎯 Backend Integration
-
-### API Endpoints Expected
-
-```typescript
-// Lead management
-GET /api/leads - Fetch all leads
-POST /api/leads/:id/status - Update lead status
-
-// Conversations
-GET /api/conversations - Fetch conversations
-GET /api/conversations/:id/messages - Get messages
-POST /api/conversations/:id/messages - Send message
-
-// Meetings
-GET /api/meetings - Fetch meetings
-POST /api/meetings - Create meeting
-
-// Content
-GET /api/content - Fetch posts
-POST /api/content - Create post
-```
-
-### Backend Response Format
-
-```typescript
-{
-  id: string;
-  company_name: string;
-  industry: string;
-  location: string;
-  vector_score: number;        // 0.0 - 1.0
-  intent_score: number;        // 0.0 - 1.0
-  trade_momentum_index: number; // 0.0 - 1.0
-  match_percentage: number;    // 60 - 100
-  firmographics_hash: string;
-  trust_verified: boolean;
-  company_size: string;
-  estimated_value: string;
-  ai_reasoning: string;
-  outreach_template: string;
-}
-```
-
-## 🏆 Hackathon Pitch Points
-
-1. **Innovation**: First Tinder-style B2B matchmaking platform
-2. **AI Integration**: Multi-factor ranking algorithm
-3. **UX Excellence**: Intuitive swipe gestures + enterprise polish
-4. **Scalability**: Production-ready architecture
-5. **Trust Layer**: Blockchain verification
-6. **Full Platform**: Complete end-to-end solution
-7. **Modern Stack**: Latest technologies (Motion, Zustand, TanStack)
-8. **Attention to Detail**: Animations, loading states, error handling
-
-## 🎬 Demo Flow
-
-1. **Dashboard**: Show KPIs and pipeline overview
-2. **Approve Leads**: Demonstrate swipe gestures
-   - Swipe right to approve
-   - Swipe left to reject
-   - Swipe up to skip
-3. **Approved Leads**: Browse approved matches
-4. **Conversations**: Show AI handling conversations
-5. **Analytics**: Display data insights
-6. **Content Engine**: Demonstrate LinkedIn automation
-
-## 📈 Future Enhancements
-
-- Real-time notifications
-- Video call integration
-- Advanced filters and search
-- CRM integration
-- Mobile app (React Native)
-- Multilingual support
-- Advanced ML models
-- Blockchain smart contracts
-
-## 🤝 Contributing
-
-This project is designed for hackathon demonstration. For production use, integrate with real backend APIs and implement proper authentication.
-
-## 📄 License
-
-MIT License - Built for hackathon demonstration
+### Backend
+- **FastAPI**: High-performance Python async framework
+- **MongoDB**: User profiles and lead persistence
+- **Pinecone**: Vector database for semantic RAG workflows
+- **Google Gemini**: Round-robin API key rotation for production-scale reasoning
 
 ---
 
-**Built with ❤️ for innovation in global trade**
+## 📁 Project Structure
+
+```text
+├── backend/                # FastAPI Application
+│   ├── main.py            # RAG Logic & API Endpoints
+│   ├── Dockerfile         # Hugging Face Spaces Deployment
+│   └── requirements.txt   # Python Dependencies
+├── src/                   # React Frontend
+│   ├── app/
+│   │   ├── pages/         # Dashboard, ApproveLeads, Analytics, etc.
+│   │   ├── components/    # SwipeCard, KPICard, Layout
+│   │   └── store/         # Zustand Store
+│   └── styles/            # Tailwind Global Styles
+└── .env                   # Configuration (VITE_API_URL, etc.)
+```
+
+## 🚀 Getting Started
+
+### Installation
+```bash
+# Frontend
+npm install
+npm run dev
+
+# Backend
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+
+## 🏆 Hackathon Standouts
+1. **Swipe Gesture Innovation**: First B2B platform using Tinder-style mechanics for lead qualification.
+2. **Robust RAG Pipeline**: Combines Pinecone vector namespaces with Gemini for contextual reasoning.
+3. **Production Ready**: Full CI/CD via Vercel and Hugging Face, optimized with Docker.
+
+---
+**Built with ❤️ for the future of Global Trade**
+
