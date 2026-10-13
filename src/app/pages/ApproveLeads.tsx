@@ -1,232 +1,356 @@
-import { useEffect, useState } from 'react';
-import { useStore } from '../store/useStore';
-import { SwipeCard } from '../components/SwipeCard';
-import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, CheckCircle, XCircle, SkipForward } from 'lucide-react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'motion/react';
+import { Check, CheckCircle, RefreshCw, RotateCcw, SkipForward, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { LeadCardBody, SwipeCard, type SwipeDirection } from '../components/SwipeCard';
+import { EngineBadge } from '../components/EngineBadge';
+import { SourcingBadge, SourcingPanel } from '../components/SourcingStatus';
+import { Skeleton } from '../components/PageSkeleton';
+import { isSourcing, keys, useDecision, useLeads, useRejectionFeedback, useUndoDecision } from '../lib/queries';
+import { useSession } from '../lib/session';
+import type { Decision, Lead } from '../lib/types';
+import { CHANNELS, channelOf, flag } from '../lib/utils';
+import { ErrorState } from '../components/ErrorState';
 
-type LeadStatus = 'pending' | 'approved' | 'rejected' | 'skipped';
+// Leaflet is only needed here; load it alongside (not before) the deck.
+const DeckMap = lazy(() => import('../components/DeckMap'));
 
-const API = import.meta.env.VITE_API_URL;
+const DECISION: Record<SwipeDirection, Decision> = { right: 'approved', left: 'rejected', up: 'skipped' };
+
+const exitVariants = {
+  exit: (dir: SwipeDirection) => ({
+    x: dir === 'right' ? 700 : dir === 'left' ? -700 : 0,
+    y: dir === 'up' ? -700 : 0,
+    rotate: dir === 'right' ? 18 : dir === 'left' ? -18 : 0,
+    opacity: 0,
+    transition: { duration: 0.3 },
+  }),
+};
+
+interface PendingReason {
+  lead: Lead;
+  inferred: string | null;
+  chosen: string | null;
+}
 
 export function ApproveLeads() {
-  const { leads, updateLeadStatus, setLeads } = useStore();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const user = useSession((s) => s.user);
+  const { data, isLoading, isError, error, refetch, isFetching } = useLeads();
+  const decide = useDecision();
+  const undo = useUndoDecision();
+  const explain = useRejectionFeedback();
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [exitX, setExitX] = useState(0);
-  const [exitY, setExitY] = useState(0);
-  const [sessionApproved, setSessionApproved] = useState(0);
-  const [sessionRejected, setSessionRejected] = useState(0);
+  // Session-local state so the deck reacts instantly, before the server re-ranks.
+  const [decided, setDecided] = useState<Set<string>>(new Set());
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [history, setHistory] = useState<{ lead: Lead; decision: Decision }[]>([]);
+  const [exitDir, setExitDir] = useState<SwipeDirection>('right');
+  const [counts, setCounts] = useState({ approved: 0, rejected: 0 });
+  const [pendingReason, setPendingReason] = useState<PendingReason | null>(null);
+  const topIdRef = useRef<string | null>(null);
+  const rerankTimer = useRef<number>();
+  const reasonTimer = useRef<number>();
 
-  // ✅ FETCH LEADS FROM BACKEND (filter already-approved ones by user)
+  const queue = useMemo(() => {
+    const leads = (data?.leads ?? []).filter((l) => !decided.has(l.id));
+    const skippedSet = new Set(skipped);
+    const fresh = leads.filter((l) => !skippedSet.has(l.id));
+    const later = skipped.map((id) => leads.find((l) => l.id === id)).filter(Boolean) as Lead[];
+    const ordered = [...fresh, ...later];
+    // Keep the card the user is looking at stable when a re-rank arrives.
+    const pinned = topIdRef.current ? ordered.findIndex((l) => l.id === topIdRef.current) : -1;
+    if (pinned > 0) ordered.unshift(...ordered.splice(pinned, 1));
+    return ordered;
+  }, [data, decided, skipped]);
+
+  const current = queue[0];
+  const next = queue[1];
   useEffect(() => {
-    const fetchLeads = async () => {
-      try {
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
-        if (!user.industry) return;
+    topIdRef.current = current?.id ?? null;
+  }, [current?.id]);
 
-        const params = new URLSearchParams({ industry: user.industry });
-        if (user.email) params.set("user_email", user.email);
+  // Re-rank with the new swipe feedback, debounced so rapid swiping stays smooth.
+  const scheduleRerank = useCallback(
+    (delay = 1200) => {
+      window.clearTimeout(rerankTimer.current);
+      rerankTimer.current = window.setTimeout(() => qc.invalidateQueries({ queryKey: keys.leads }), delay);
+    },
+    [qc],
+  );
+  useEffect(() => () => {
+    window.clearTimeout(rerankTimer.current);
+    window.clearTimeout(reasonTimer.current);
+  }, []);
 
-        const res = await fetch(`${API}/leads?${params.toString()}`);
-        const data = await res.json();
+  const showReasonPicker = useCallback((p: PendingReason) => {
+    setPendingReason(p);
+    window.clearTimeout(reasonTimer.current);
+    reasonTimer.current = window.setTimeout(() => setPendingReason(null), 9000);
+  }, []);
 
-        const formatted = data.map((item: any, idx: number) => {
-          // -- Parse every numeric field safely --
-          const intentScore = Number(item.Intent_Score) || 0;
-          const promptResponse = Number(item.Prompt_Response) || 0;
-          const responsProbability = Number(item.Response_Probability) || 0;
-          const revenueUSD = Number(item.Revenue_Size_USD) || 0;
-          const teamSize = Number(item.Team_Size) || 0;
-          const salesNavVisits = Number(item.SalesNav_ProfileVisits) || 0;
-
-          // ✅ Use rank directly from MongoDB as the match %
-          // rank is pre-computed by the ML pipeline (e.g. 97.6)
-          const rank = Number(item.rank);
-          const matchPct = !isNaN(rank) && rank > 0
-            ? Math.round(rank)                                     // e.g. 97.6 → 98
-            : Math.round(((intentScore + responsProbability) / 2) * 100) || 70 + (idx % 15);
-
-          // Format revenue as $78.5M or $500K
-          const revenueFormatted = revenueUSD >= 1_000_000
-            ? `$${(revenueUSD / 1_000_000).toFixed(1)}M`
-            : revenueUSD > 0
-              ? `$${(revenueUSD / 1_000).toFixed(0)}K`
-              : `$${40 + (idx % 200)}K`; // fallback
-
-          // Preferred outreach channel
-          const channel = item.Preferred_Channel || 'Email';
-
-          // Build Priority Signals from real boolean/binary fields
-          const signals: string[] = [];
-          if (item.Tariff_News === 1) signals.push('Active tariff news exposure');
-          if (item.Funding_Event === 1) signals.push('Recent funding event');
-          if (item.DecisionMaker_Change === 1) signals.push('Decision-maker change detected');
-          if (item.Engagement_Spike === 1) signals.push('LinkedIn engagement spike');
-          if (item.Hiring_Growth === 1) signals.push('Company is hiring');
-          if (item.War_Event === 1) signals.push('Geo-political risk flagged');
-          if (item.StockMarket_Shock === 1) signals.push('Stock market sensitivity');
-          if (item.Good_Payment_History === 1) signals.push('Good payment history verified');
-          if (salesNavVisits > 5000) signals.push(`${salesNavVisits.toLocaleString()} SalesNav profile visits`);
-          if (signals.length === 0) signals.push('Consistent trade engagement'); // at least one signal
-
-          // AI reasoning composed from real fields
-          const aiReasoning = [
-            `${channel} is the preferred outreach channel.`,
-            `Response probability: ${Math.round(responsProbability * 100)}%.`,
-            `Prompt response rate: ${Math.round(promptResponse * 100)}%.`,
-            item.Certification ? `Certified: ${item.Certification}.` : '',
-            item.Good_Payment_History === 1 ? 'Has a strong payment record.' : '',
-          ].filter(Boolean).join(' ');
-
-          return {
-            id: item._id,
-            company_name: item.Buyer_ID || `Buyer #${idx + 1}`,
-            industry: item.Industry || 'General Trade',
-            location: item.Country || 'Global',
-            country: item.Country || 'Global',
-            vector_score: intentScore || (0.7 + (idx % 10) * 0.02),
-            intent_score: intentScore || (0.65 + (idx % 12) * 0.02),
-            trade_momentum_index: responsProbability || (0.55 + (idx % 8) * 0.03),
-            match_percentage: matchPct,
-            company_size: teamSize > 0 ? String(teamSize) : String(100 + idx * 17),
-            estimated_value: revenueFormatted,
-            trust_verified: item.Good_Payment_History === 1,
-            ai_reasoning: aiReasoning || 'High match based on trade patterns and buyer intent signals.',
-            firmographics_hash: item.Certification ? `Cert: ${item.Certification}` : undefined,
-            outreach_template: `Reach via ${channel}`,
-            status: (item.status as any) || 'pending',
-            signals,
-          };
-        });
-
-        setLeads(formatted);
-      } catch (err) {
-        console.error("Error fetching leads:", err);
-      }
-    };
-
-    fetchLeads();
-  }, [setLeads]);
-
-  const pendingLeads = leads.filter(
-    (lead) => lead.status === 'pending'
+  const giveReason = useCallback(
+    (reason: string) => {
+      if (!pendingReason) return;
+      const { lead } = pendingReason;
+      setPendingReason({ ...pendingReason, chosen: reason });
+      window.clearTimeout(reasonTimer.current);
+      reasonTimer.current = window.setTimeout(() => setPendingReason(null), 900);
+      explain.mutate(
+        { leadId: lead.id, reason },
+        {
+          onSuccess: () => toast.success('Got it - re-ranking with that in mind', { duration: 1800 }),
+        },
+      );
+    },
+    [pendingReason, explain],
   );
 
-  const currentLead = pendingLeads[currentIndex];
+  const handleSwipe = useCallback(
+    (direction: SwipeDirection) => {
+      if (!current) return;
+      const lead = current;
+      const decision = DECISION[direction];
+      setExitDir(direction);
+      topIdRef.current = null;
 
-  const handleSwipe = async (
-    direction: 'left' | 'right' | 'up'
-  ) => {
-    if (!currentLead) return;
-
-    let newStatus: LeadStatus = 'skipped';
-
-    if (direction === 'left') {
-      setExitX(-1000);
-      newStatus = 'rejected';
-      setSessionRejected(prev => prev + 1);
-      toast.error(`${currentLead.company_name} rejected`, {
-        icon: <XCircle className="w-5 h-5" />
-      });
-    }
-
-    if (direction === 'right') {
-      setExitX(1000);
-      newStatus = 'approved';
-      setSessionApproved(prev => prev + 1);
-      toast.success(`${currentLead.company_name} approved!`, {
-        icon: <CheckCircle className="w-5 h-5" />
-      });
-    }
-
-    if (direction === 'up') {
-      setExitY(-1000);
-      newStatus = 'skipped';
-      toast.info(`${currentLead.company_name} skipped`, {
-        icon: <SkipForward className="w-5 h-5" />
-      });
-    }
-
-    // ✅ Update local store
-    updateLeadStatus(currentLead.id, newStatus);
-
-    // ✅ Only call backend approve endpoint on right swipe (approved)
-    if (newStatus === 'approved') {
-      try {
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
-        await fetch(`${API}/leads/${currentLead.id}/approve`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_email: user.email })
-        });
-      } catch (err) {
-        console.error("Error approving lead:", err);
+      if (decision === 'skipped') {
+        setSkipped((s) => [...s.filter((id) => id !== lead.id), lead.id]);
+      } else {
+        setDecided((s) => new Set(s).add(lead.id));
+        setCounts((c) => ({ ...c, [decision]: c[decision as 'approved' | 'rejected'] + 1 }));
       }
-    }
+      setHistory((h) => [...h.slice(-19), { lead, decision }]);
+      if (decision === 'rejected') showReasonPicker({ lead, inferred: null, chosen: null });
+      else setPendingReason(null);
 
-    setTimeout(() => {
-      setCurrentIndex(prev => prev + 1);
-      setExitX(0);
-      setExitY(0);
-    }, 300);
-  };
+      decide.mutate(
+        { lead, decision },
+        {
+          onSuccess: (res) => {
+            if (decision === 'approved') {
+              const ch = CHANNELS[channelOf(lead.preferred_channel)].label;
+              toast.success(`${lead.company_name} approved`, {
+                description: `AI is drafting a ${ch} opener using today's news.`,
+                action: res.conversation_id
+                  ? { label: 'Open chat', onClick: () => navigate('/conversations', { state: { openId: res.conversation_id } }) }
+                  : undefined,
+              });
+            }
+            if (decision === 'rejected' && res.inferred_reason) {
+              setPendingReason((p) => (p && p.lead.id === lead.id ? { ...p, inferred: res.inferred_reason } : p));
+            }
+            scheduleRerank();
+          },
+          onError: () => {
+            // Put the card back so the user can swipe again.
+            setDecided((s) => {
+              const n = new Set(s);
+              n.delete(lead.id);
+              return n;
+            });
+          },
+        },
+      );
+    },
+    [current, decide, navigate, scheduleRerank, showReasonPicker],
+  );
 
-  if (pendingLeads.length === 0) {
+  const handleUndo = useCallback(() => {
+    const last = history[history.length - 1];
+    if (!last) return;
+    setHistory((h) => h.slice(0, -1));
+    setPendingReason(null);
+    setDecided((s) => {
+      const n = new Set(s);
+      n.delete(last.lead.id);
+      return n;
+    });
+    setSkipped((s) => s.filter((id) => id !== last.lead.id));
+    if (last.decision !== 'skipped') setCounts((c) => ({ ...c, [last.decision]: Math.max(0, c[last.decision as 'approved' | 'rejected'] - 1) }));
+    topIdRef.current = last.lead.id;
+    undo.mutate(last.lead.id, {
+      onSuccess: () => toast.info(`Restored ${last.lead.company_name}`),
+    });
+  }, [history, undo]);
+
+  const reasons = data?.reject_reasons ?? [];
+
+  // Keyboard: ← reject, → approve, ↑ skip, Z / Backspace undo, 1-5 rejection reason.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const n = Number(e.key);
+      if (pendingReason && !pendingReason.chosen && n >= 1 && n <= reasons.length) giveReason(reasons[n - 1].key);
+      else if (e.key === 'ArrowRight') handleSwipe('right');
+      else if (e.key === 'ArrowLeft') handleSwipe('left');
+      else if (e.key === 'ArrowUp') handleSwipe('up');
+      else if (e.key === 'z' || e.key === 'Backspace') handleUndo();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleSwipe, handleUndo, giveReason, pendingReason, reasons]);
+
+  if (isLoading && !data) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold">All Caught Up!</h2>
-          <p>No more leads to review.</p>
-        </div>
+      <div className="h-full p-4 lg:p-8 flex flex-col gap-4">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="flex-1 min-h-[420px] rounded-[32px] lg:w-[560px] lg:ml-auto" />
+      </div>
+    );
+  }
+
+  if (isError && !data) {
+    return (
+      <div className="h-full flex items-center justify-center p-6">
+        <ErrorState error={error} title="Couldn't load your leads" onRetry={() => refetch()} retrying={isFetching} />
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 to-blue-50 p-4 lg:p-8 overflow-hidden">
+    <div className="relative h-full overflow-hidden bg-slate-100">
+      <Suspense fallback={null}>
+        <DeckMap leads={queue} current={current} homeCountry={user?.country} hotCountries={data?.engine?.regime.hot_countries} />
+      </Suspense>
+      {/* Fade the map under the deck so cards stay readable. */}
+      <div className="pointer-events-none absolute inset-0 z-[5] bg-gradient-to-t from-slate-50 via-slate-50/60 to-transparent lg:bg-gradient-to-l lg:from-slate-50/95 lg:via-slate-50/40 lg:to-transparent" />
 
-      <div className="mb-8 flex justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <Sparkles className="w-8 h-8 text-blue-600" />
-            Approve Leads
-          </h1>
-
-          <div className="flex gap-4 text-sm mt-2">
-            <span>{pendingLeads.length} remaining</span>
-            <span className="text-green-600">✓ {sessionApproved}</span>
-            <span className="text-red-600">✗ {sessionRejected}</span>
+      <div className="relative z-10 h-full flex flex-col p-4 lg:p-6 pointer-events-none">
+        {/* Header */}
+        <div className="pointer-events-auto flex flex-wrap items-start justify-between gap-3">
+          <div className="bg-white/85 backdrop-blur rounded-2xl px-4 py-3 shadow-sm border border-white">
+            <h1 className="text-xl lg:text-2xl font-bold flex items-center gap-2">
+              <Sparkles className="w-6 h-6 text-blue-600" /> Approve Leads
+            </h1>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs lg:text-sm mt-0.5 text-slate-600">
+              <span>{queue.length} in deck</span>
+              <span className="text-green-600">✓ {counts.approved}</span>
+              <span className="text-red-600">✗ {counts.rejected}</span>
+              {current && <span className="font-medium text-slate-800">{flag(current.country)} Now: {current.country || 'Unknown'}</span>}
+            </div>
+            <div className="mt-1"><SourcingBadge sourcing={data?.sourcing} /></div>
+          </div>
+          <div className="flex items-start gap-2">
+            {data?.engine && <EngineBadge engine={data.engine} />}
+            <button
+              onClick={() => refetch()}
+              className="text-xs font-semibold inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/90 backdrop-blur border border-slate-200 shadow-sm hover:bg-white"
+              title="Re-rank with the latest news"
+            >
+              <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Re-rank</span>
+            </button>
           </div>
         </div>
-      </div>
 
-      <div className="flex-1 relative max-w-4xl mx-auto w-full">
-        <AnimatePresence>
-          {pendingLeads
-            .slice(currentIndex, currentIndex + 3)
-            .map((lead, index) => {
-
-              const isTop = index === 0;
-
-              return (
-                <motion.div
-                  key={lead.id}
-                  exit={{ x: exitX, y: exitY, opacity: 0 }}
-                  className="absolute inset-0"
-                  style={{ zIndex: 3 - index }}
-                >
-                  {isTop && (
-                    <SwipeCard
-                      lead={lead}
-                      onSwipe={handleSwipe}
-                    />
+        {/* Deck: right column on desktop (map visible on the left), lower part of the screen on mobile */}
+        <div className="flex-1 min-h-0 flex flex-col w-full lg:w-[min(580px,52%)] lg:ml-auto mt-[14vh] lg:mt-4">
+          {!current && (isSourcing(data) || (data?.sourcing?.mode === 'live' && !data.leads.length && !history.length)) ? (
+            <div className="pointer-events-auto flex-1 flex items-center justify-center bg-white/90 backdrop-blur rounded-[32px] p-8">
+              <SourcingPanel sourcing={data?.sourcing} industry={user?.industry} />
+            </div>
+          ) : !current ? (
+            <div className="pointer-events-auto flex-1 flex items-center justify-center text-center bg-white/90 backdrop-blur rounded-[32px] p-8">
+              <div>
+                <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                <h2 className="text-2xl font-bold">All caught up!</h2>
+                <p className="text-slate-600 mb-4">No more leads to review for your industry right now.</p>
+                <div className="flex gap-2 justify-center">
+                  {history.length > 0 && (
+                    <button onClick={handleUndo} className="px-4 py-2 rounded-lg bg-white border border-slate-200 inline-flex items-center gap-2"><RotateCcw className="w-4 h-4" /> Undo last</button>
                   )}
-                </motion.div>
-              );
-            })}
-        </AnimatePresence>
+                  <button onClick={() => navigate('/conversations')} className="px-4 py-2 rounded-lg bg-blue-600 text-white">Go to outreach</button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="pointer-events-auto flex-1 relative min-h-[380px]">
+                {next && (
+                  <div className="absolute inset-0 scale-[0.96] translate-y-3 opacity-70 pointer-events-none" aria-hidden>
+                    <LeadCardBody lead={next} isTop={false} />
+                  </div>
+                )}
+                <AnimatePresence custom={exitDir} initial={false}>
+                  <motion.div
+                    key={current.id}
+                    className="absolute inset-0"
+                    custom={exitDir}
+                    variants={exitVariants}
+                    initial={{ scale: 0.96, y: 12, opacity: 0.7 }}
+                    animate={{ scale: 1, y: 0, opacity: 1, transition: { duration: 0.2 } }}
+                    exit="exit"
+                  >
+                    <SwipeCard lead={current} onSwipe={handleSwipe} />
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              {/* Why was it rejected? */}
+              <AnimatePresence>
+                {pendingReason && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="pointer-events-auto mt-3 bg-white/95 backdrop-blur rounded-2xl border border-slate-200 shadow-lg p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2 text-xs">
+                      <span className="font-semibold text-slate-800">Why not {pendingReason.lead.company_name}?</span>
+                      <button onClick={() => setPendingReason(null)} className="text-slate-400 hover:text-slate-600" aria-label="Dismiss">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {reasons.map((r, i) => {
+                        const chosen = pendingReason.chosen === r.key;
+                        const guessed = !pendingReason.chosen && pendingReason.inferred === r.key;
+                        return (
+                          <button
+                            key={r.key}
+                            onClick={() => giveReason(r.key)}
+                            disabled={!!pendingReason.chosen}
+                            className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
+                              chosen ? 'bg-red-600 border-red-600 text-white'
+                                : guessed ? 'border-red-300 bg-red-50 text-red-700'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span className="hidden lg:inline text-slate-400 mr-1">{i + 1}</span>
+                            {r.label}
+                            {guessed && <span className="ml-1 text-[10px] uppercase">· our guess</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="pointer-events-auto flex items-center justify-center gap-4 pt-4">
+                <button onClick={handleUndo} disabled={!history.length} className="w-11 h-11 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 disabled:opacity-40" aria-label="Undo (Z)" title="Undo (Z)">
+                  <RotateCcw className="w-5 h-5" />
+                </button>
+                <button onClick={() => handleSwipe('left')} className="w-14 h-14 rounded-full bg-white border-2 border-red-200 shadow-md flex items-center justify-center text-red-500 hover:bg-red-50" aria-label="Reject (←)" title="Reject (←)">
+                  <X className="w-7 h-7" />
+                </button>
+                <button onClick={() => handleSwipe('up')} className="w-11 h-11 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 hover:bg-slate-50" aria-label="Skip (↑)" title="Skip (↑)">
+                  <SkipForward className="w-5 h-5" />
+                </button>
+                <button onClick={() => handleSwipe('right')} className="w-14 h-14 rounded-full bg-green-500 shadow-md flex items-center justify-center text-white hover:bg-green-600" aria-label="Approve and start outreach (→)" title="Approve & start outreach (→)">
+                  <Check className="w-7 h-7" />
+                </button>
+              </div>
+              <p className="hidden lg:block text-center text-xs text-slate-500 mt-2">← reject · → approve and start outreach · ↑ skip · Z undo · 1-5 rejection reason</p>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

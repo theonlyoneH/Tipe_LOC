@@ -1,221 +1,146 @@
-import { useEffect } from 'react';
-import { useStore } from '../store/useStore';
-import { mockAPI } from '../lib/mockAPI';
-import { motion } from 'motion/react';
-import { Calendar, Video, CheckCircle2, Clock, ExternalLink, FileText } from 'lucide-react';
-import { format, isBefore } from 'date-fns';
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
+import { format, isAfter } from 'date-fns';
+import { Calendar, CheckCircle2, Clock, FileText, Loader2, MessageSquare, Send, Video, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { EmptyState, Skeleton } from '../components/PageSkeleton';
+import { useMeetingAction, useMeetings, useUpdateMeeting } from '../lib/queries';
+import type { Meeting } from '../lib/types';
+import { ErrorState } from '../components/ErrorState';
 
-export function Meetings() {
-  const { meetings, addMeeting } = useStore();
+const card = 'bg-white rounded-2xl shadow-sm p-6 border border-slate-200';
 
-  useEffect(() => {
-    if (meetings.length === 0) {
-      mockAPI.getMeetings().then((mtgs) => {
-        mtgs.forEach(meeting => addMeeting(meeting));
-      });
-    }
-  }, [meetings.length, addMeeting]);
-
-  const upcomingMeetings = meetings.filter(m => 
-    m.status === 'scheduled' && !isBefore(m.date, new Date())
-  );
-  
-  const pastMeetings = meetings.filter(m => 
-    m.status === 'completed' || isBefore(m.date, new Date())
-  );
-
-  const successRate = meetings.length > 0 
-    ? ((meetings.filter(m => m.status === 'completed').length / meetings.length) * 100).toFixed(0)
-    : 0;
+function MeetingCard({ m }: { m: Meeting }) {
+  const update = useUpdateMeeting();
+  const action = useMeetingAction();
+  const [notes, setNotes] = useState(m.notes);
+  const date = new Date(m.date);
+  const upcoming = m.status === 'scheduled' && isAfter(date, new Date());
+  const run = (a: 'summary' | 'follow-up') =>
+    action.mutate({ id: m.id, action: a }, {
+      onSuccess: () => toast.success(a === 'summary' ? 'Summary generated' : 'Follow-up drafted in the conversation'),
+    });
 
   return (
-    <div className="p-8 space-y-8">
-      {/* Header */}
+    <div className={card}>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h3 className="text-lg font-bold text-slate-900">{m.title}</h3>
+            <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${m.status === 'completed' ? 'bg-green-100 text-green-700' : m.status === 'cancelled' ? 'bg-slate-100 text-slate-500' : 'bg-blue-100 text-blue-700'}`}>
+              {m.status}
+            </span>
+          </div>
+          <div className="text-sm text-slate-600 space-y-0.5">
+            <div className="flex items-center gap-2"><Calendar className="w-4 h-4" /> {format(date, 'EEE, MMM d, yyyy')}</div>
+            <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> {format(date, 'h:mm a')} · {m.duration} min</div>
+            <div className="font-semibold text-slate-900">{m.lead_name !== m.lead_company ? `${m.lead_name} · ` : ''}{m.lead_company}</div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {m.meeting_link && upcoming && (
+            <a href={m.meeting_link} target="_blank" rel="noreferrer" className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm inline-flex items-center gap-2"><Video className="w-4 h-4" /> Join</a>
+          )}
+          <Link to="/conversations" state={{ openId: m.conversation_id }} className="px-3 py-2 bg-slate-100 rounded-lg hover:bg-slate-200 text-sm inline-flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Chat</Link>
+          {m.status === 'scheduled' && (
+            <>
+              <button onClick={() => update.mutate({ id: m.id, status: 'completed' })} className="px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Done</button>
+              <button onClick={() => update.mutate({ id: m.id, status: 'cancelled' })} className="px-3 py-2 text-slate-500 rounded-lg hover:bg-slate-100 text-sm inline-flex items-center gap-1"><XCircle className="w-4 h-4" /> Cancel</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {m.status === 'completed' && (
+        <div className="mt-4 space-y-3">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={() => notes !== m.notes && update.mutate({ id: m.id, notes })}
+            rows={3}
+            placeholder="Meeting notes: what did they need, volumes, timelines…"
+            className="w-full text-sm px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {m.ai_summary && (
+            <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-100">
+              <div className="flex items-center gap-2 mb-1 text-sm font-semibold text-slate-900"><FileText className="w-4 h-4 text-blue-600" /> AI summary</div>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{m.ai_summary}</p>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => run('summary')} disabled={action.isPending} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm inline-flex items-center gap-2 disabled:opacity-60">
+              {action.isPending && action.variables?.action === 'summary' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} {m.ai_summary ? 'Regenerate summary' : 'Generate summary'}
+            </button>
+            {m.follow_up_sent ? (
+              <span className="px-3 py-2 bg-green-100 text-green-700 rounded-lg text-sm inline-flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Follow-up drafted</span>
+            ) : (
+              <button onClick={() => run('follow-up')} disabled={action.isPending} className="px-3 py-2 bg-slate-100 rounded-lg hover:bg-slate-200 text-sm inline-flex items-center gap-2 disabled:opacity-60">
+                <Send className="w-4 h-4" /> Draft follow-up
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Meetings() {
+  const { data: meetings = [], isLoading, isError, error, refetch, isFetching } = useMeetings();
+  const { upcoming, past } = useMemo(() => {
+    const now = new Date();
+    return {
+      upcoming: meetings.filter((m) => m.status === 'scheduled' && isAfter(new Date(m.date), now)),
+      past: meetings.filter((m) => !(m.status === 'scheduled' && isAfter(new Date(m.date), now))).reverse(),
+    };
+  }, [meetings]);
+  const completed = meetings.filter((m) => m.status === 'completed').length;
+  const held = meetings.filter((m) => m.status !== 'scheduled').length;
+
+  return (
+    <div className="p-4 lg:p-8 space-y-8 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-4xl font-bold text-slate-900 mb-2">Meetings</h1>
-        <p className="text-slate-600">Manage and track all your scheduled meetings</p>
+        <h1 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-1">Meetings</h1>
+        <p className="text-slate-600">Schedule meetings from a conversation. AI writes summaries and follow-ups.</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-slate-900">{upcomingMeetings.length}</div>
-              <div className="text-sm text-slate-600">Upcoming Meetings</div>
-            </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { label: 'Upcoming', value: upcoming.length, icon: Calendar, tone: 'bg-blue-100 text-blue-600' },
+          { label: 'Completed', value: completed, icon: CheckCircle2, tone: 'bg-green-100 text-green-600' },
+          { label: 'Show-up rate', value: held ? `${Math.round((completed / held) * 100)}%` : '—', icon: Video, tone: 'bg-purple-100 text-purple-600' },
+        ].map(({ label, value, icon: Icon, tone }) => (
+          <div key={label} className={`${card} flex items-center gap-4`}>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${tone}`}><Icon className="w-6 h-6" /></div>
+            <div><div className="text-3xl font-bold text-slate-900">{value}</div><div className="text-sm text-slate-600">{label}</div></div>
           </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-              <CheckCircle2 className="w-6 h-6 text-green-600" />
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-slate-900">{pastMeetings.length}</div>
-              <div className="text-sm text-slate-600">Completed</div>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-              <CheckCircle2 className="w-6 h-6 text-purple-600" />
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-slate-900">{successRate}%</div>
-              <div className="text-sm text-slate-600">Success Rate</div>
-            </div>
-          </div>
-        </motion.div>
+        ))}
       </div>
 
-      {/* Upcoming Meetings */}
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <Clock className="w-6 h-6 text-blue-600" />
-          Upcoming Meetings
-        </h2>
-
-        {upcomingMeetings.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-lg p-12 text-center border border-slate-200">
-            <Calendar className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-500">No upcoming meetings scheduled</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {upcomingMeetings.map((meeting, index) => (
-              <motion.div
-                key={meeting.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200 hover:shadow-xl transition-all"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-slate-900 mb-2">{meeting.title}</h3>
-                    <div className="space-y-2 text-sm text-slate-600">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4" />
-                        <span>{format(meeting.date, 'EEEE, MMMM d, yyyy')}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4" />
-                        <span>{format(meeting.date, 'h:mm a')} • {meeting.duration} minutes</span>
-                      </div>
-                      <div className="font-semibold text-slate-900">
-                        {meeting.leadName} • {meeting.leadCompany}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {meeting.meetingLink && (
-                      <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-                        <Video className="w-4 h-4" />
-                        Join Meeting
-                      </button>
-                    )}
-                    <button className="px-4 py-2 bg-slate-100 text-slate-900 rounded-lg hover:bg-slate-200 transition-colors">
-                      <ExternalLink className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Past Meetings */}
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <CheckCircle2 className="w-6 h-6 text-green-600" />
-          Past Meetings
-        </h2>
-
-        {pastMeetings.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-lg p-12 text-center border border-slate-200">
-            <CheckCircle2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-500">No past meetings yet</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {pastMeetings.map((meeting, index) => (
-              <motion.div
-                key={meeting.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-xl font-bold text-slate-900">{meeting.title}</h3>
-                      <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
-                        Completed
-                      </span>
-                    </div>
-                    <div className="space-y-1 text-sm text-slate-600">
-                      <div>{format(meeting.date, 'MMMM d, yyyy • h:mm a')}</div>
-                      <div className="font-semibold text-slate-900">
-                        {meeting.leadName} • {meeting.leadCompany}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {meeting.aiSummary && (
-                  <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-100 mb-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <FileText className="w-4 h-4 text-blue-600" />
-                      <span className="text-sm font-semibold text-slate-900">AI Meeting Summary</span>
-                    </div>
-                    <p className="text-sm text-slate-700">{meeting.aiSummary}</p>
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    View Summary
-                  </button>
-                  {meeting.followUpSent ? (
-                    <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Follow-up Sent
-                    </div>
-                  ) : (
-                    <button className="px-4 py-2 bg-slate-100 text-slate-900 rounded-lg hover:bg-slate-200 transition-colors text-sm">
-                      Send Follow-up
-                    </button>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </div>
+      {isError && !meetings.length ? (
+        <ErrorState error={error} title="Couldn't load meetings" onRetry={() => refetch()} retrying={isFetching} />
+      ) : isLoading && !meetings.length ? (
+        <div className="space-y-4">{[0, 1].map((i) => <Skeleton key={i} className="h-36" />)}</div>
+      ) : (
+        <>
+          <section>
+            <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2"><Clock className="w-5 h-5 text-blue-600" /> Upcoming</h2>
+            {upcoming.length ? (
+              <div className="space-y-4">{upcoming.map((m) => <MeetingCard key={m.id} m={m} />)}</div>
+            ) : (
+              <EmptyState icon={Calendar} title="No upcoming meetings">
+                Open a <Link to="/conversations" className="text-blue-600 font-semibold">conversation</Link> and click "Schedule meeting".
+              </EmptyState>
+            )}
+          </section>
+          {past.length > 0 && (
+            <section>
+              <h2 className="text-xl font-bold text-slate-900 mb-3 flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-green-600" /> Past</h2>
+              <div className="space-y-4">{past.map((m) => <MeetingCard key={m.id} m={m} />)}</div>
+            </section>
+          )}
+        </>
+      )}
     </div>
   );
 }

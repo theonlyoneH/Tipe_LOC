@@ -1,389 +1,224 @@
-import { useEffect, useState } from 'react';
-import { useStore } from '../store/useStore';
-import { TrendingUp, Users, Calendar, Target } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { motion, AnimatePresence } from 'motion/react';
+import { useMemo } from 'react';
+import { Link } from 'react-router';
+import { ArrowDownRight, ArrowUpRight, MessageSquare, Newspaper, Target, ThumbsUp, Users } from 'lucide-react';
 import { KPICard } from '../components/KPICard';
+import { SourcingBadge } from '../components/SourcingStatus';
+import { Skeleton } from '../components/PageSkeleton';
+import { useAnalytics, useLeads, useNews } from '../lib/queries';
+import { useSession } from '../lib/session';
+import { CHANNELS, SIGNAL_STYLE, channelOf, flag, pct, timeAgo } from '../lib/utils';
+import { ErrorState } from '../components/ErrorState';
 
-const API = import.meta.env.VITE_API_URL;
-
-// Country → flag emoji map
-const countryFlags: Record<string, string> = {
-  Netherlands: '🇳🇱', Germany: '🇩🇪', USA: '🇺🇸', UAE: '🇦🇪',
-  Singapore: '🇸🇬', UK: '🇬🇧', Japan: '🇯🇵', Australia: '🇦🇺',
-  India: '🇮🇳', China: '🇨🇳', France: '🇫🇷', Canada: '🇨🇦',
-  Brazil: '🇧🇷', Mexico: '🇲🇽', Italy: '🇮🇹', Spain: '🇪🇸',
-  Sweden: '🇸🇪', Switzerland: '🇨🇭', 'South Korea': '🇰🇷',
-  'Saudi Arabia': '🇸🇦', Poland: '🇵🇱', Turkey: '🇹🇷',
-};
-
-interface RawLead {
-  _id: string;
-  Buyer_ID?: string;
-  Country?: string;
-  Industry?: string;
-  Revenue_Size_USD?: number;
-  Team_Size?: number;
-  Intent_Score?: number;
-  Response_Probability?: number;
-  Preferred_Channel?: string;
-  Good_Payment_History?: number;
-  Funding_Event?: number;
-  DecisionMaker_Change?: number;
-  Tariff_News?: number;
-  Engagement_Spike?: number;
-  SalesNav_ProfileVisits?: number;
-  Certification?: string;
-  status?: string;
-}
-
-interface DashStats {
-  totalLeads: number;
-  avgResponseRate: number;
-  avgIntentScore: number;
-  highIntentCount: number;
-  fundingEventCount: number;
-  topCountries: { country: string; score: number; flag: string }[];
-  channelDist: { name: string; value: number; color: string }[];
-  feed: { action: string; company: string; time: string }[];
-  totalRevenue: number;
-  pipeline: { stage: string; count: number }[];
-}
+const card = 'bg-white rounded-2xl shadow-sm p-6 border border-slate-200';
 
 export function Dashboard() {
-  const { stats, leads, meetings } = useStore();
-  const [dashStats, setDashStats] = useState<DashStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const user = useSession((s) => s.user);
+  const { data: leadsData, isLoading: leadsLoading, isError, error, refetch, isFetching } = useLeads();
+  const { data: analytics } = useAnalytics();
+  const { data: news = [] } = useNews(user?.industry ?? '');
+  const leads = leadsData?.leads ?? [];
 
-  useEffect(() => {
-    const fetchAndCompute = async () => {
-      try {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
-        const industry = user.industry || '';
-        const userEmail = user.email || '';
+  const stats = useMemo(() => {
+    const top = leads.slice(0, 50);
+    const avg = (f: (l: (typeof leads)[number]) => number) => (top.length ? top.reduce((s, l) => s + f(l), 0) / top.length : 0);
 
-        const params = new URLSearchParams({ industry });
-        if (userEmail) params.set('user_email', userEmail);
+    const byCountry = new Map<string, { n: number; score: number; news: number }>();
+    for (const l of leads) {
+      if (!l.country) continue;
+      const c = byCountry.get(l.country) ?? { n: 0, score: 0, news: 0 };
+      c.n += 1;
+      c.score += l.dynamic_score;
+      c.news += l.news_score - 0.5;
+      byCountry.set(l.country, c);
+    }
+    const countries = [...byCountry.entries()]
+      .map(([country, c]) => ({ country, count: c.n, score: Math.round((c.score / c.n) * 100), news: c.news / c.n }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
 
-        const res = await fetch(`${API}/leads?${params.toString()}`);
-        const rawLeads: RawLead[] = await res.json();
+    const channelCounts = new Map<string, number>();
+    for (const l of leads) {
+      const ch = channelOf(l.preferred_channel);
+      channelCounts.set(ch, (channelCounts.get(ch) ?? 0) + 1);
+    }
+    const channels = [...channelCounts.entries()]
+      .map(([ch, n]) => ({ name: CHANNELS[ch as keyof typeof CHANNELS].label, value: n, color: CHANNELS[ch as keyof typeof CHANNELS].color }))
+      .sort((a, b) => b.value - a.value);
 
-        if (!Array.isArray(rawLeads) || rawLeads.length === 0) {
-          setLoading(false);
-          return;
-        }
+    const movers = [...leads]
+      .filter((l) => l.news_reasons.length && l.rank_delta !== 0)
+      .sort((a, b) => Math.abs(b.rank_delta) - Math.abs(a.rank_delta))
+      .slice(0, 5);
 
-        // ── KPIs ──
-        const totalLeads = rawLeads.length;
-        const avgResponseRate =
-          totalLeads > 0
-            ? rawLeads.reduce((s, l) => s + (l.Response_Probability ?? 0), 0) / totalLeads
-            : 0;
-        const avgIntentScore =
-          totalLeads > 0
-            ? rawLeads.reduce((s, l) => s + (l.Intent_Score ?? 0), 0) / totalLeads
-            : 0;
-        const highIntentCount = rawLeads.filter(l => (l.Intent_Score ?? 0) >= 0.7).length;
-        const fundingEventCount = rawLeads.filter(l => l.Funding_Event === 1).length;
-        const totalRevenue = rawLeads.reduce((s, l) => s + (l.Revenue_Size_USD ?? 0), 0);
-
-        // ── Top Countries (by avg intent score) ──
-        const countryMap: Record<string, { total: number; count: number }> = {};
-        rawLeads.forEach(l => {
-          if (!l.Country) return;
-          if (!countryMap[l.Country]) countryMap[l.Country] = { total: 0, count: 0 };
-          countryMap[l.Country].total += l.Intent_Score ?? 0;
-          countryMap[l.Country].count += 1;
-        });
-        const topCountries = Object.entries(countryMap)
-          .map(([country, v]) => ({
-            country,
-            score: Math.round((v.total / v.count) * 100),
-            flag: countryFlags[country] ?? '🌍',
-          }))
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 6);
-
-        // ── Channel Distribution ──
-        const channelMap: Record<string, number> = {};
-        rawLeads.forEach(l => {
-          const ch = l.Preferred_Channel ?? 'Other';
-          channelMap[ch] = (channelMap[ch] ?? 0) + 1;
-        });
-        const channelColors: Record<string, string> = {
-          Email: '#3b82f6',
-          LinkedIn: '#0a66c2',
-          WhatsApp: '#25d366',
-          Call: '#8b5cf6',
-          Other: '#94a3b8',
-        };
-        const channelDist = Object.entries(channelMap)
-          .map(([name, count]) => ({
-            name,
-            value: Math.round((count / totalLeads) * 100),
-            color: channelColors[name] ?? '#94a3b8',
-          }))
-          .sort((a, b) => b.value - a.value);
-
-        // ── Intelligence Feed (derived from real flags) ──
-        const feed: { action: string; company: string; time: string }[] = [];
-
-        // Leads with Funding events
-        rawLeads
-          .filter(l => l.Funding_Event === 1)
-          .slice(0, 2)
-          .forEach(l => feed.push({ action: 'Funding event detected', company: l.Buyer_ID ?? 'Unknown', time: 'Recently' }));
-
-        // Leads with DecisionMaker change
-        rawLeads
-          .filter(l => l.DecisionMaker_Change === 1)
-          .slice(0, 2)
-          .forEach(l => feed.push({ action: 'Decision-maker changed', company: l.Buyer_ID ?? 'Unknown', time: 'Last 7 days' }));
-
-        // Leads with very high Sales Nav visits
-        rawLeads
-          .filter(l => (l.SalesNav_ProfileVisits ?? 0) > 8000)
-          .slice(0, 2)
-          .forEach(l => feed.push({ action: 'High SalesNav engagement spike', company: l.Buyer_ID ?? 'Unknown', time: 'This week' }));
-
-        // Top intent leads
-        [...rawLeads]
-          .sort((a, b) => (b.Intent_Score ?? 0) - (a.Intent_Score ?? 0))
-          .slice(0, 2)
-          .forEach(l => feed.push({ action: `High intent: ${Math.round((l.Intent_Score ?? 0) * 100)}%`, company: l.Buyer_ID ?? 'Unknown', time: 'Live' }));
-
-        // ── Fetch approved leads for pipeline ──
-        let approvedCount = 0;
-        try {
-          if (userEmail) {
-            const approvedRes = await fetch(`${API}/approved-leads?user_email=${encodeURIComponent(userEmail)}`);
-            const approvedData = await approvedRes.json();
-            approvedCount = Array.isArray(approvedData) ? approvedData.length : 0;
-          }
-        } catch { /* ignore */ }
-
-        const pendingCount = totalLeads; // /leads endpoint already excludes approved ones
-
-        setDashStats({
-          totalLeads,
-          avgResponseRate,
-          avgIntentScore,
-          highIntentCount,
-          fundingEventCount,
-          topCountries,
-          channelDist,
-          feed: feed.slice(0, 6),
-          totalRevenue,
-          pipeline: [
-            { stage: 'Pending', count: pendingCount },
-            { stage: 'Approved', count: approvedCount },
-            { stage: 'Meetings', count: meetings.filter(m => m.status === 'scheduled').length },
-            { stage: 'Converted', count: meetings.filter(m => m.status === 'completed').length },
-          ],
-        });
-      } catch (err) {
-        console.error('Dashboard fetch error:', err);
-      } finally {
-        setLoading(false);
-      }
+    return {
+      intent: avg((l) => l.intent_score),
+      response: avg((l) => l.response_probability),
+      countries,
+      channels,
+      movers,
     };
+  }, [leads]);
 
-    fetchAndCompute();
-  }, []);
+  const marketNews = useMemo(() => {
+    const leadCountries = new Set(leads.map((l) => l.country));
+    return news.filter((a) => a.countries.some((c) => leadCountries.has(c))).slice(0, 5);
+  }, [news, leads]);
 
-  const pipelineData = dashStats?.pipeline ?? [
-    { stage: 'Pending', count: leads.filter(l => l.status === 'pending').length },
-    { stage: 'Approved', count: leads.filter(l => l.status === 'approved').length },
-    { stage: 'Meetings', count: meetings.filter(m => m.status === 'scheduled').length },
-    { stage: 'Converted', count: meetings.filter(m => m.status === 'completed').length },
-  ];
-
-  const fmtM = (v: number) =>
-    v >= 1_000_000_000
-      ? `$${(v / 1_000_000_000).toFixed(1)}B`
-      : v >= 1_000_000
-        ? `$${(v / 1_000_000).toFixed(1)}M`
-        : v >= 1_000
-          ? `$${(v / 1_000).toFixed(0)}K`
-          : `$${v}`;
+  const loading = leadsLoading && !leadsData;
 
   return (
-    <div className="p-4 lg:p-8 space-y-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-1">Dashboard</h1>
-        <p className="text-slate-500 text-sm">Real-time trade intelligence from your buyer database.</p>
+    <div className="p-4 lg:p-8 space-y-6 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+        <div>
+          <h1 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-1">Dashboard</h1>
+          <p className="text-slate-500 text-sm">
+            {user?.industry ? `${user.industry} ${user.category === 'importer' ? 'suppliers' : 'buyers'}` : 'Your pipeline'}, re-ranked live from{' '}
+            {leadsData?.news_used ?? 0} market headlines{leadsData?.learned_from_swipes ? ` and ${leadsData.learned_from_swipes} of your swipes` : ''}.
+          </p>
+        </div>
+        {leadsData && (
+          <div className="flex items-center gap-2">
+            <SourcingBadge sourcing={leadsData.sourcing} />
+            <span className="text-xs text-slate-400">Updated {timeAgo(leadsData.generated_at)}</span>
+          </div>
+        )}
       </div>
 
-      {/* KPI Cards — real data when loaded, store fallbacks otherwise */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard
-          icon={Users}
-          value={loading ? '...' : dashStats?.totalLeads ?? stats.activeLeads}
-          label="Total Leads"
-          trend={loading ? '' : `${dashStats?.highIntentCount ?? 0} high intent`}
-          iconColor="bg-blue-100 text-blue-600"
-          delay={0.1}
-        />
-        <KPICard
-          icon={TrendingUp}
-          value={loading ? '...' : `${Math.round((isNaN(dashStats?.avgResponseRate ?? NaN) ? 0 : (dashStats?.avgResponseRate ?? 0)) * 100)}%`}
-          label="Avg Response Rate"
-          trend={loading ? '' : `Intent: ${Math.round((dashStats?.avgIntentScore ?? 0) * 100)}%`}
-          iconColor="bg-purple-100 text-purple-600"
-          delay={0.2}
-        />
-        <KPICard
-          icon={Calendar}
-          value={loading ? '...' : dashStats?.fundingEventCount ?? stats.meetingsScheduled}
-          label="Funding Events"
-          trend="Recent signals"
-          iconColor="bg-green-100 text-green-600"
-          delay={0.3}
-        />
-        <KPICard
-          icon={Target}
-          value={loading ? '...' : fmtM(dashStats?.totalRevenue ?? 0)}
-          label="Total Buyer Revenue"
-          trend="Combined portfolio"
-          iconColor="bg-orange-100 text-orange-600"
-          delay={0.4}
-        />
+      {isError && !leadsData && (
+        <ErrorState compact error={error} title="Couldn't load your leads" onRetry={() => refetch()} retrying={isFetching} />
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+        <KPICard icon={Users} value={loading ? '…' : leadsData?.total_candidates ?? 0} label="Leads in pipeline" trend={loading ? '' : `Avg intent ${pct(stats.intent)}`} iconColor="bg-blue-100 text-blue-600" to="/approve" />
+        <KPICard icon={ThumbsUp} value={analytics ? `${analytics.approval_rate}%` : '…'} label="Approval rate" trend={analytics ? `${analytics.decisions.approved} approved` : ''} iconColor="bg-green-100 text-green-600" to="/approved" />
+        <KPICard icon={MessageSquare} value={analytics ? `${analytics.response_rate}%` : '…'} label="Reply rate" trend={analytics ? `${analytics.responded}/${analytics.contacted} replied` : ''} iconColor="bg-purple-100 text-purple-600" to="/conversations" />
+        <KPICard icon={Target} value={loading ? '…' : pct(stats.response)} label="Predicted response" trend="Top 50 leads" iconColor="bg-orange-100 text-orange-600" to="/analytics" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pipeline Bar Chart */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200"
-        >
-          <h2 className="text-xl font-bold text-slate-900 mb-6">Pipeline Overview</h2>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={pipelineData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="stage" stroke="#64748b" />
-              <YAxis stroke="#64748b" />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
-              />
-              <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </motion.div>
-
-        {/* Global Buyer Intent — real countries from DB */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200"
-        >
-          <h2 className="text-xl font-bold text-slate-900 mb-6">Global Buyer Intent</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* News-driven movers */}
+        <section className={`${card} lg:col-span-3`}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-slate-900">News-driven ranking moves</h2>
+            <Link to="/approve" className="text-sm text-blue-600 font-semibold hover:underline">Review leads →</Link>
+          </div>
           {loading ? (
-            <div className="flex items-center justify-center h-40 text-slate-400">Loading...</div>
+            <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)}</div>
+          ) : stats.movers.length === 0 ? (
+            <p className="text-sm text-slate-500 py-6 text-center">No headlines are moving your leads right now.</p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {(dashStats?.topCountries.length ? dashStats.topCountries : [
-                { country: 'Netherlands', score: 83, flag: '🇳🇱' },
-                { country: 'Germany', score: 77, flag: '🇩🇪' },
-                { country: 'USA', score: 74, flag: '🇺🇸' },
-              ]).map((item, idx, arr) => (
-                <div
-                  key={item.country}
-                  className="p-4 rounded-xl border border-slate-100 flex flex-col items-center justify-center text-center transition-transform hover:scale-105"
-                  style={{ backgroundColor: `rgba(59,130,246,${0.05 + 0.15 * (arr.length - idx) / arr.length})` }}
-                >
-                  <span className="text-2xl mb-1">{item.flag}</span>
-                  <span className="text-sm font-bold text-slate-900">{item.country}</span>
-                  <span className="text-xs font-semibold text-blue-600">{item.score} Score</span>
+            <ul className="space-y-2">
+              {stats.movers.map((l) => {
+                const up = l.rank_delta > 0;
+                return (
+                  <li key={l.id} className="flex items-start gap-3 p-3 rounded-xl bg-slate-50">
+                    <span className={`mt-0.5 shrink-0 inline-flex items-center gap-0.5 text-xs font-bold px-2 py-1 rounded-lg ${up ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {up ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+                      {Math.abs(l.rank_delta)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-sm text-slate-900 truncate">
+                        {flag(l.country)} {l.company_name} <span className="text-slate-400 font-normal">· {l.match_percentage}% match</span>
+                      </div>
+                      <a href={l.news_reasons[0].url} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-blue-600 line-clamp-1">
+                        {l.news_reasons[0].why}: {l.news_reasons[0].headline}
+                      </a>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        {/* Market news */}
+        <section className={`${card} lg:col-span-2`}>
+          <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2"><Newspaper className="w-5 h-5 text-blue-600" /> Signals in your markets</h2>
+          {marketNews.length === 0 ? (
+            <p className="text-sm text-slate-500 py-6 text-center">No headlines mention your lead markets yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {marketNews.map((a) => {
+                const s = SIGNAL_STYLE[a.signal];
+                return (
+                  <li key={a.id}>
+                    <a href={a.url} target="_blank" rel="noreferrer" className="block group">
+                      <div className={`text-[11px] font-semibold uppercase ${s.text}`}>{s.label} · {a.countries.slice(0, 3).join(', ')}</div>
+                      <div className="text-sm text-slate-800 group-hover:text-blue-600 line-clamp-2">{a.headline}</div>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <section className={card}>
+          <h2 className="text-lg font-bold text-slate-900 mb-4">Outreach funnel</h2>
+          {/* CSS bars keep the landing page free of the charting bundle. */}
+          <div className="space-y-3">
+            {(analytics?.funnel ?? []).map((f) => {
+              const max = Math.max(1, ...(analytics?.funnel ?? []).map((x) => x.count));
+              return (
+                <div key={f.stage}>
+                  <div className="flex justify-between text-xs mb-1"><span className="text-slate-600">{f.stage}</span><span className="font-bold text-slate-900">{f.count}</span></div>
+                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full transition-[width] duration-500" style={{ width: `${(f.count / max) * 100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+            {!analytics && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-7" />)}
+          </div>
+        </section>
+
+        <section className={card}>
+          <h2 className="text-lg font-bold text-slate-900 mb-4">Top markets now</h2>
+          {loading ? (
+            <Skeleton className="h-48" />
+          ) : stats.countries.length === 0 ? (
+            <p className="text-sm text-slate-500 py-6 text-center">No leads yet for your industry.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {stats.countries.map((c) => (
+                <div key={c.country} className="p-3 rounded-xl border border-slate-100 bg-slate-50 text-center">
+                  <div className="text-2xl">{flag(c.country)}</div>
+                  <div className="text-sm font-bold text-slate-900 truncate">{c.country}</div>
+                  <div className="text-xs text-blue-600 font-semibold">{c.score}% · {c.count} leads</div>
+                  {Math.abs(c.news) > 0.02 && (
+                    <div className={`text-[10px] font-semibold ${c.news > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {c.news > 0 ? '▲ news tailwind' : '▼ news headwind'}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
-        </motion.div>
-      </div>
+        </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Intelligence Feed — derived from real fields */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="lg:col-span-2 bg-white rounded-2xl shadow-lg p-6 border border-slate-200 overflow-hidden"
-        >
-          <h2 className="text-xl font-bold text-slate-900 mb-6">Intelligence Feed</h2>
-          <div className="space-y-3">
-            <AnimatePresence mode="popLayout">
-              {(dashStats?.feed.length ? dashStats.feed : [
-                { action: 'Fetching live signals...', company: 'Connecting to database', time: '' },
-              ]).map((activity, index) => (
-                <motion.div
-                  key={activity.company + index}
-                  layout
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors"
-                >
-                  <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-slate-900 text-sm truncate">{activity.action}</div>
-                    <div className="text-xs text-slate-500 truncate">{activity.company}</div>
+        <section className={card}>
+          <h2 className="text-lg font-bold text-slate-900 mb-4">Preferred channels</h2>
+          {stats.channels.length === 0 ? (
+            <p className="text-sm text-slate-500 py-6 text-center">No data yet.</p>
+          ) : (
+            <>
+              <div className="flex h-3 rounded-full overflow-hidden mb-4">
+                {stats.channels.map((c) => <div key={c.name} style={{ width: `${(c.value / leads.length) * 100}%`, backgroundColor: c.color }} title={c.name} />)}
+              </div>
+              <div className="space-y-2">
+                {stats.channels.map((c) => (
+                  <div key={c.name} className="flex items-center gap-3 text-sm">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color }} />
+                    <span className="text-slate-600 flex-1">{c.name}</span>
+                    <span className="font-bold text-slate-900">{Math.round((c.value / leads.length) * 100)}%</span>
                   </div>
-                  <div className="text-xs text-slate-400 font-medium flex-shrink-0">{activity.time}</div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        </motion.div>
-
-        {/* Channel Distribution — real Preferred_Channel counts */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 }}
-          className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200"
-        >
-          <h2 className="text-xl font-bold text-slate-900 mb-6">Channels</h2>
-          <div className="flex flex-col items-center">
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart>
-                <Pie
-                  data={dashStats?.channelDist.length ? dashStats.channelDist : [
-                    { name: 'Email', value: 45, color: '#3b82f6' },
-                    { name: 'LinkedIn', value: 30, color: '#0a66c2' },
-                    { name: 'WhatsApp', value: 15, color: '#25d366' },
-                    { name: 'Call', value: 10, color: '#8b5cf6' },
-                  ]}
-                  cx="50%" cy="50%"
-                  innerRadius={50} outerRadius={70}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {(dashStats?.channelDist ?? []).map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="w-full mt-4 space-y-2">
-              {(dashStats?.channelDist.length ? dashStats.channelDist : [
-                { name: 'Email', value: 45, color: '#3b82f6' },
-                { name: 'LinkedIn', value: 30, color: '#0a66c2' },
-                { name: 'WhatsApp', value: 15, color: '#25d366' },
-                { name: 'Call', value: 10, color: '#8b5cf6' },
-              ]).map(ch => (
-                <div key={ch.name} className="flex items-center gap-3">
-                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: ch.color }} />
-                  <span className="text-xs text-slate-600 flex-1">{ch.name}</span>
-                  <span className="text-xs font-bold text-slate-900">{ch.value}%</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </motion.div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
       </div>
     </div>
   );

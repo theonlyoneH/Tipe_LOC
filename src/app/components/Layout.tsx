@@ -1,26 +1,26 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
-import {
-  LayoutDashboard,
-  ThumbsUp,
-  CheckCircle2,
-  MessageSquare,
-  Calendar,
-  BarChart3,
-  FileText,
-  User,
-  LogOut,
-  Sparkles,
-  Send,
-  X,
-  MessageCircle
-} from 'lucide-react';
-import { fetchTradeSignals } from "../lib/scroll";
-//hao
 import { motion, AnimatePresence } from 'motion/react';
-import { useState, useEffect, useRef } from 'react';
-import { sendChatMessage } from '../lib/api';
-import { formatApiResponse } from '../lib/errorHandler';
-
+import {
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  FileText,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  MessageSquare,
+  Sparkles,
+  ThumbsUp,
+  User,
+  X,
+} from 'lucide-react';
+import { NewsTicker } from './NewsTicker';
+import { ChatWidget } from './ChatWidget';
+import { OfflineBanner } from './OfflineBanner';
+import { clearCache, prefetchRoute, useConversations } from '../lib/queries';
+import { useSession } from '../lib/session';
+import { pages } from '../pageLoaders';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -33,103 +33,72 @@ const navItems = [
   { path: '/profile', label: 'Profile', icon: User },
 ];
 
+const mobileTabs = navItems.filter((n) => ['/', '/approve', '/conversations', '/analytics'].includes(n.path));
+
+const isActivePath = (current: string, path: string) =>
+  path === '/' ? current === '/' : current === path || current.startsWith(`${path}/`);
+
+function NavLink({ item, active, badge, onClick }: { item: (typeof navItems)[number]; active: boolean; badge?: number; onClick?: () => void }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      to={item.path}
+      onClick={onClick}
+      onMouseEnter={() => prefetchRoute(item.path)}
+      onFocus={() => prefetchRoute(item.path)}
+      className="relative block"
+      aria-current={active ? 'page' : undefined}
+    >
+      {active && (
+        <motion.div layoutId="activeNav" className="absolute inset-0 bg-blue-600 rounded-lg" transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }} />
+      )}
+      <div className={`relative flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${active ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'}`}>
+        <Icon className="w-5 h-5" />
+        <span className="font-medium text-sm flex-1">{item.label}</span>
+        {!!badge && <span className="min-w-5 h-5 px-1.5 rounded-full bg-blue-500 text-white text-[11px] font-bold flex items-center justify-center">{badge}</span>}
+      </div>
+    </Link>
+  );
+}
+
 export function Layout() {
   const navigate = useNavigate();
-  const [tradeSignals, setTradeSignals] = useState<any[]>([]);
+  const location = useLocation();
+  const user = useSession((s) => s.user);
+  const signOut = useSession((s) => s.signOut);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const { data: conversations } = useConversations();
+  const unread = conversations?.reduce((n, c) => n + (c.unread || 0), 0) ?? 0;
+
+  // Every page shares one scroll container, so reset it on navigation.
+  // Otherwise the next page opens at the previous page's scroll offset.
+  useLayoutEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+  }, [location.pathname]);
+
+  // Warm every page chunk once the browser is idle so navigation is instant.
   useEffect(() => {
-    const loadSignals = async () => {
-      const data = await fetchTradeSignals();
-      setTradeSignals(data);
-    };
-
-    loadSignals();
-    const interval = setInterval(loadSignals, 60000);
-
-    return () => clearInterval(interval);
+    const warm = () => Object.values(pages).forEach((load) => load().catch(() => {}));
+    const w = window as any;
+    const id = w.requestIdleCallback ? w.requestIdleCallback(warm, { timeout: 3000 }) : window.setTimeout(warm, 1500);
+    return () => (w.cancelIdleCallback ? w.cancelIdleCallback(id) : window.clearTimeout(id));
   }, []);
 
-
-  const location = useLocation();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [messages, setMessages] = useState([
-    { role: 'ai', text: 'Hello! I am your TIPE Assistant. How can I help you today? ✨', time: new Date() }
-  ]);
-  const [inputValue, setInputValue] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const chatRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-  }, [messages, isTyping]);
-
-
-  const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
-
-    const userMsg = { role: 'user', text: inputValue, time: new Date() };
-    setMessages(prev => [...prev, userMsg]);
-
-    const messageToSend = inputValue; // store before clearing
-    setInputValue('');
-    setIsTyping(true);
-
-    try {
-      const response = await sendChatMessage(messageToSend);
-
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'ai',
-          text: formatApiResponse(response),
-          time: new Date()
-        }
-      ]);
-    } catch (error) {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'ai',
-          text: "Backend not reachable ",
-          time: new Date()
-        }
-      ]);
-    }
-
-    setIsTyping(false);
+  const logout = () => {
+    signOut();
+    clearCache();
+    navigate('/login', { replace: true });
   };
+
+  const badgeFor = (path: string) => (path === '/conversations' ? unread : undefined);
+
   return (
-    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
-      {/* Stock Ticker */}
-      <div className="h-8 bg-slate-900 text-white flex items-center overflow-hidden border-b border-slate-700 relative z-50">
-        <motion.div
-          animate={{ x: [1000, -2000] }}
-          transition={{ repeat: Infinity, duration: 30, ease: "linear" }}
-          className="whitespace-nowrap text-xs font-medium flex gap-12"
-        >
-          {tradeSignals.length > 0 ? (
-            tradeSignals.map((item, index) => {
-              const score = item?.ai_analysis?.trade_signal_score ?? 0;
-              const tag = item?.ai_analysis?.importance_tag ?? "Trade Update";
-              const headline = item?.headline ?? "";
+    <div className="flex flex-col h-dvh bg-slate-50 overflow-hidden">
+      <NewsTicker />
+      <OfflineBanner />
 
-              let emoji = "🟡";
-              if (score >= 0.75) emoji = "🔴";
-              else if (score >= 0.6) emoji = "🟢";
-
-              return (
-                <span key={index}>
-                  {emoji} {tag} — {headline.slice(0, 80)}...
-                </span>
-              );
-            })
-          ) : (
-            <span>Loading trade intelligence...</span>
-          )}
-        </motion.div>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0">
         {/* Sidebar - Desktop */}
         <aside className="hidden lg:flex w-64 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white flex-col shadow-2xl z-40">
           <div className="p-6 border-b border-slate-700">
@@ -138,51 +107,33 @@ export function Layout() {
                 <Sparkles className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="font-bold text-xl">TIPE</h1>
+                <h1 className="font-bold text-xl leading-tight">TIPE</h1>
                 <p className="text-xs text-slate-400">Trade Intent Prediction</p>
               </div>
             </Link>
           </div>
 
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-
-              return (
-                <Link key={item.path} to={item.path} className="relative block">
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeNav"
-                      className="absolute inset-0 bg-blue-600 rounded-lg"
-                      transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-                    />
-                  )}
-                  <div className={`relative flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'}`}>
-                    <Icon className="w-5 h-5" />
-                    <span className="font-medium text-sm">{item.label}</span>
-                  </div>
-                </Link>
-              );
-            })}
+            {navItems.map((item) => (
+              <NavLink key={item.path} item={item} active={isActivePath(location.pathname, item.path)} badge={badgeFor(item.path)} />
+            ))}
           </nav>
 
-          <div className="p-4 border-t border-slate-700">
-            <button
-              onClick={() => {
-                localStorage.removeItem('user');
-                localStorage.removeItem('token');
-                navigate('/login');
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
-            >
+          <div className="p-4 border-t border-slate-700 space-y-2">
+            {user && (
+              <div className="px-4 text-xs text-slate-400 truncate" title={user.email}>
+                {user.company_name || user.email}
+                <div className="capitalize text-slate-500">{user.category} · {user.industry}</div>
+              </div>
+            )}
+            <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors">
               <LogOut className="w-5 h-5" />
               <span className="font-medium text-sm">Logout</span>
             </button>
           </div>
         </aside>
 
-        {/* Mobile Nav Overlay */}
+        {/* Mobile Nav Drawer */}
         <AnimatePresence>
           {isSidebarOpen && (
             <>
@@ -193,6 +144,7 @@ export function Layout() {
               />
               <motion.aside
                 initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }}
+                transition={{ type: 'tween', duration: 0.2 }}
                 className="fixed inset-y-0 left-0 w-64 bg-slate-900 text-white z-50 flex flex-col lg:hidden"
               >
                 <div className="p-6 border-b border-slate-700 flex justify-between items-center">
@@ -200,22 +152,16 @@ export function Layout() {
                     <Sparkles className="w-6 h-6 text-blue-500" />
                     <h1 className="font-bold text-xl">TIPE</h1>
                   </div>
-                  <X className="w-6 h-6" onClick={() => setIsSidebarOpen(false)} />
+                  <button onClick={() => setIsSidebarOpen(false)} aria-label="Close menu"><X className="w-6 h-6" /></button>
                 </div>
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                  {navItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location.pathname === item.path;
-                    return (
-                      <Link key={item.path} to={item.path} onClick={() => setIsSidebarOpen(false)} className="block">
-                        <div className={`flex items-center gap-3 px-4 py-3 rounded-lg ${isActive ? 'bg-blue-600 text-white' : 'text-slate-300'}`}>
-                          <Icon className="w-5 h-5" />
-                          <span className="font-medium text-sm">{item.label}</span>
-                        </div>
-                      </Link>
-                    );
-                  })}
+                  {navItems.map((item) => (
+                    <NavLink key={item.path} item={item} active={isActivePath(location.pathname, item.path)} badge={badgeFor(item.path)} onClick={() => setIsSidebarOpen(false)} />
+                  ))}
                 </nav>
+                <button onClick={logout} className="m-4 flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-slate-700/50 rounded-lg">
+                  <LogOut className="w-5 h-5" /> <span className="text-sm">Logout</span>
+                </button>
               </motion.aside>
             </>
           )}
@@ -223,87 +169,27 @@ export function Layout() {
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0">
-          <main className="flex-1 overflow-auto relative">
+          <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto relative">
             <Outlet />
-
-            {/* AI Chatbot */}
-            <div className="fixed bottom-20 lg:bottom-8 right-8 z-50">
-              {!isChatOpen ? (
-                <button
-                  onClick={() => setIsChatOpen(true)}
-                  className="w-14 h-14 bg-slate-900 text-white rounded-full flex items-center justify-center shadow-2xl border-2 border-blue-500 hover:scale-110 transition-transform relative group"
-                >
-                  <Sparkles className="w-6 h-6" />
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-slate-900 animate-pulse" />
-                </button>
-              ) : (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  className="w-80 lg:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col h-[500px]"
-                >
-                  <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-blue-400" />
-                      <span className="font-bold text-sm">TIPE AI </span>
-                    </div>
-                    <X className="w-5 h-5 cursor-pointer" onClick={() => setIsChatOpen(false)} />
-                  </div>
-                  <div ref={chatRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {messages.map((m, i) => (
-                      <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                          {m.text}
-                        </div>
-                      </div>
-                    ))}
-                    {isTyping && (
-                      <div className="flex justify-start">
-                        <div className="bg-slate-100 p-3 rounded-2xl flex gap-1">
-                          <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
-                          <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150" />
-                          <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-300" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4 border-t border-slate-100 flex gap-2">
-                    <input
-                      type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                      placeholder="Ask about leads..."
-                      className="flex-1 bg-slate-50 border-none rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                    <button onClick={handleSendMessage} className="bg-blue-600 text-white p-2 rounded-lg">
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </div>
           </main>
 
           {/* Mobile Bottom Tab Bar */}
-          <nav className="lg:hidden h-16 bg-white border-t border-slate-200 flex justify-around items-center px-4 pb-safe">
-            <Link to="/" className={`p-2 ${location.pathname === '/' ? 'text-blue-600' : 'text-slate-400'}`}>
-              <LayoutDashboard className="w-6 h-6" />
-            </Link>
-            <Link to="/approve" className={`p-2 ${location.pathname === '/approve' ? 'text-blue-600' : 'text-slate-400'}`}>
-              <ThumbsUp className="w-6 h-6" />
-            </Link>
-            <Link to="/approved" className={`p-2 ${location.pathname === '/approved' ? 'text-blue-600' : 'text-slate-400'}`}>
-              <CheckCircle2 className="w-6 h-6" />
-            </Link>
-            <Link to="/analytics" className={`p-2 ${location.pathname === '/analytics' ? 'text-blue-600' : 'text-slate-400'}`}>
-              <BarChart3 className="w-6 h-6" />
-            </Link>
-            <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400">
-              <span className="text-xl">☰</span>
+          <nav className="lg:hidden h-16 bg-white border-t border-slate-200 flex justify-around items-center px-4 shrink-0">
+            {mobileTabs.map(({ path, icon: Icon, label }) => (
+              <Link key={path} to={path} aria-label={label} className={`relative p-2 ${isActivePath(location.pathname, path) ? 'text-blue-600' : 'text-slate-400'}`}>
+                <Icon className="w-6 h-6" />
+                {path === '/conversations' && unread > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-blue-600" />}
+              </Link>
+            ))}
+            <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400" aria-label="Open menu">
+              <Menu className="w-6 h-6" />
             </button>
           </nav>
         </div>
       </div>
+
+      {/* The deck's action buttons and the chat composer sit where the FAB would on phones. */}
+      <ChatWidget hideOnMobile={location.pathname === '/approve' || location.pathname.startsWith('/conversations')} />
     </div>
   );
-
 }

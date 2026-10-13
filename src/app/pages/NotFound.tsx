@@ -1,10 +1,10 @@
 import { Link } from 'react-router';
 import { motion } from 'motion/react';
-import { Home, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
 export function NotFound() {
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="h-full min-h-[60vh] flex items-center justify-center p-6">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

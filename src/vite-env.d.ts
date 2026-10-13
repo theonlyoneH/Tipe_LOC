@@ -2,15 +2,10 @@
 
 interface ImportMetaEnv {
     readonly VITE_API_URL: string;
+    readonly VITE_MAP_TILES?: string;
+    readonly VITE_MAP_ATTRIBUTION?: string;
 }
 
 interface ImportMeta {
     readonly env: ImportMetaEnv;
-}
-interface ImportMetaEnv {
-  readonly VITE_API_URL: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
 }

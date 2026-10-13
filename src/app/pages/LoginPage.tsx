@@ -1,189 +1,78 @@
-import React, { useState } from "react";
-import { useNavigate, Link } from "react-router";
-import { Sparkles, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
-
-const API = import.meta.env.VITE_API_URL;
+import { useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router';
+import { ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { AuthShell } from '../components/AuthShell';
+import { api } from '../lib/api';
+import { FormError } from '../components/FormError';
+import { clearCache } from '../lib/queries';
+import { useSession } from '../lib/session';
+import type { User } from '../lib/types';
 
 export default function LoginPage() {
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [showPassword, setShowPassword] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [errorMsg, setErrorMsg] = useState("");
-    const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const navigate = useNavigate();
+  const from = (useLocation().state as { from?: string } | null)?.from ?? '/';
+  const signIn = useSession((s) => s.signIn);
 
-    const handleLogin = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        setErrorMsg("");
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api<{ token: string; user: User }>('/login', { body: { email: email.trim().toLowerCase(), password }, auth: false });
+      clearCache();
+      signIn(res.token, res.user);
+      navigate(from, { replace: true });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        try {
-            const res = await fetch(`${API}/login`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                email: email.toLowerCase(), 
-                password 
-                }),
-            });
+  return (
+    <AuthShell>
+      <div className="mb-8">
+        <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome back</h2>
+        <p className="text-slate-500">Sign in to continue to your dashboard</p>
+      </div>
 
-            const data = await res.json();
-            if (data.success) {
-                localStorage.setItem("user", JSON.stringify(data.user));
-                localStorage.setItem("token", data.token);
-                navigate("/");
-                // Force reload to update Layout
-                window.location.reload();
-            } else {
-                setErrorMsg(data.message || "Invalid credentials");
-            }
-        } catch (err) {
-            setErrorMsg("Server error. Is the backend running?");
-        } finally {
-            setLoading(false);
-        }
-    };
+      <form onSubmit={handleLogin} className="space-y-5">
+        <label className="block">
+          <span className="block text-sm font-semibold text-slate-700 mb-1">Email</span>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input type="email" required autoComplete="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </label>
 
-    return (
-        <div className="min-h-screen flex font-sans bg-slate-50">
-            {/* Left Side - Branding */}
-            <div className="hidden lg:flex w-1/2 bg-blue-900 p-16 flex-col justify-between text-white relative overflow-hidden">
-                <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-12">
-                        <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                            <Sparkles className="w-6 h-6" />
-                        </div>
-                        <span className="text-2xl font-bold uppercase tracking-wider">Tipe</span>
-                    </div>
+        <label className="block">
+          <span className="block text-sm font-semibold text-slate-700 mb-1">Password</span>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input type={showPassword ? 'text' : 'password'} required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)}
+              className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" aria-label={showPassword ? 'Hide password' : 'Show password'}>
+              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
+          </div>
+        </label>
 
-                    <h1 className="text-5xl font-bold mb-6 leading-tight">
-                        Trade Intent <br /> Prediction Engine
-                    </h1>
-                    <p className="text-xl text-blue-100 mb-12 max-w-lg">
-                        Enterprise-grade AI-powered export matchmaking platform that transforms trade listings into intent-driven intelligence.
-                    </p>
+        <FormError error={error} />
 
-                    <div className="space-y-8">
-                        <div className="flex gap-4">
-                            <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center font-bold">1</div>
-                            <div>
-                                <h3 className="font-bold text-lg">AI Lead Discovery (RAG)</h3>
-                                <p className="text-blue-200">Semantic search across exporters and importers using Pinecone vector database.</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-4">
-                            <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center font-bold">2</div>
-                            <div>
-                                <h3 className="font-bold text-lg">Swipe-Based Vetting</h3>
-                                <p className="text-blue-200">Revolutionary B2B lead vetting with physics-based gestures and Gemini reasoning.</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-4">
-                            <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center font-bold">3</div>
-                            <div>
-                                <h3 className="font-bold text-lg">Automated Outreach</h3>
-                                <p className="text-blue-200">Integrated management for LinkedIn, Email, and WhatsApp handles initial lead qualification.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        <button type="submit" disabled={loading} className="w-full py-4 bg-gradient-to-r from-blue-700 to-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex items-center justify-center gap-2 hover:shadow-blue-300 transition-all active:scale-[0.98] disabled:opacity-70">
+          {loading ? 'Signing in…' : <>Sign in <ArrowRight className="w-5 h-5" /></>}
+        </button>
+      </form>
 
-                <div className="relative z-10 text-sm text-blue-300">
-                    © 2026 TIPE. All rights reserved.
-                </div>
-
-                <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-blue-800/50 to-transparent" />
-            </div>
-
-            {/* Right Side - Form */}
-            <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-6 sm:p-8 relative">
-                <div className="lg:hidden flex items-center gap-2 mb-8">
-                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                        <Sparkles className="w-5 h-5 text-white" />
-                    </div>
-                    <span className="text-xl font-bold uppercase tracking-wider text-slate-900">Tipe</span>
-                </div>
-
-                <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-6 sm:p-10 border border-slate-100">
-                    <div className="mb-8">
-                        <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h2>
-                        <p className="text-slate-500">Sign in to continue to your dashboard</p>
-                    </div>
-
-                    <form onSubmit={handleLogin} className="space-y-6">
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1">Email / Username</label>
-                            <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                                <input
-                                    type="email"
-                                    required
-                                    placeholder="test@gmail.com"
-                                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <div className="flex justify-between mb-1">
-                                <label className="block text-sm font-semibold text-slate-700">Password</label>
-                                <button type="button" className="text-sm text-blue-600 font-semibold hover:underline">Forgot?</button>
-                            </div>
-                            <div className="relative">
-                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                                <input
-                                    type={showPassword ? "text" : "password"}
-                                    required
-                                    placeholder="123456"
-                                    className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                >
-                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                </button>
-                            </div>
-                        </div>
-
-                        {errorMsg && (
-                            <div className="p-3 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100">
-                                {errorMsg}
-                            </div>
-                        )}
-
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full py-4 bg-gradient-to-r from-blue-700 to-blue-600 text-white rounded-xl font-bold font-lg shadow-lg shadow-blue-200 flex items-center justify-center gap-2 hover:shadow-blue-300 hover:-translate-y-1 transition-all active:scale-95 disabled:opacity-70 disabled:translate-y-0"
-                        >
-                            {loading ? "Signing In..." : (
-                                <>
-                                    Sign In <ArrowRight className="w-5 h-5" />
-                                </>
-                            )}
-                        </button>
-                    </form>
-
-                    <div className="mt-8 text-center pt-6 border-t border-slate-100">
-                        <p className="text-slate-600">
-                            Don't have an account?{" "}
-                            <Link to="/register" className="text-blue-600 font-bold hover:underline">
-                                Register
-                            </Link>
-                        </p>
-                    </div>
-                </div>
-
-                <div className="absolute bottom-6 text-xs text-slate-400 text-center w-full px-4 lg:w-auto lg:px-0">
-                    By signing in, you agree to our Terms of Service and Privacy Policy
-                </div>
-            </div>
-        </div>
-    );
+      <p className="mt-8 text-center pt-6 border-t border-slate-100 text-slate-600">
+        Don't have an account? <Link to="/register" className="text-blue-600 font-bold hover:underline">Register</Link>
+      </p>
+    </AuthShell>
+  );
 }
