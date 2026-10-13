@@ -1,0 +1,46 @@
+# Keeps the real-company lead cache fresh for every industry your users picked.
+# Free on GitHub Actions. Add the MONGO_DETAILS secret under
+# Settings -> Secrets and variables -> Actions.
+name: Lead scraper
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      industry:
+        description: "Scrape just this industry now (optional)"
+        required: false
+
+concurrency:
+  group: lead-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Run scraper
+        env:
+          MONGO_DETAILS: ${{ secrets.MONGO_DETAILS }}
+          MONGO_DB: ${{ vars.MONGO_DB || 'proexport_db' }}
+          SCRAPE_INDUSTRIES: ${{ vars.SCRAPE_INDUSTRIES }}
+          SCRAPER_CONTACT: ${{ vars.SCRAPER_CONTACT || 'https://github.com' }}
+          DEMO_USER_EMAILS: ${{ vars.DEMO_USER_EMAILS || 'test@gmail.com' }}
+        run: |
+          if [ -n "${{ github.event.inputs.industry }}" ]; then
+            python -m scraper.worker --industry "${{ github.event.inputs.industry }}"
+          else
+            python -m scraper.worker --once
+          fi
