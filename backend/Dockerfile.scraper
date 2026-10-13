@@ -1,0 +1,14 @@
+# Always-on scraper worker (Render / Railway / Fly.io background worker).
+# Needs the same env as the API (at least MONGO_DETAILS).
+FROM python:3.11-slim
+
+RUN useradd -m -u 1000 user
+USER user
+ENV PATH="/home/user/.local/bin:$PATH" PYTHONUNBUFFERED=1
+WORKDIR /app
+
+COPY --chown=user ./requirements.txt requirements.txt
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
+COPY --chown=user . /app
+
+CMD ["python", "-m", "scraper.worker", "--loop", "--interval", "3600"]
