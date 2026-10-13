@@ -1,0 +1,23 @@
+# Secrets: pass env vars at runtime instead of baking them into the image
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python caches & virtualenvs
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Repo & tooling
+.git/
+.gitignore
+.dockerignore
+*.log
+logs/
+Dockerfile.scraper

@@ -1,71 +1,105 @@
-# Logs
-logs
-*.log
+# ==============================================================================
+# TIPE (Trade Intent Prediction Engine) - Root .gitignore
+# ==============================================================================
+
+# ---------- Secrets & Environment Variables (NEVER COMMIT) ----------
+# Covers .env, .env.local, .env.production, backend/.env, etc.
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+*.pem
+*.key
+*.crt
+*.cert
+*.pfx
+*.p12
+credentials.json
+token.json
+client_secret*.json
+service-account*.json
+
+# ---------- Node / Frontend ----------
+node_modules/
+dist/
+dist-ssr/
+build/
+out/
+coverage/
+.vite/
+*.local
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+.turbo/
+.vercel/
+.pnpm-store/
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Build outputs
-build/
-bin/
-obj/
-out/
-
-# Python
+# ---------- Python / Backend ----------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyd
 .Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 .venv/
 venv/
+env/
 ENV/
+*.egg-info/
+.eggs/
+*.egg
+wheels/
+pip-log.txt
 
-# IMPORTANT: Don't ignore src/app/lib (our source code library)
-!src/app/lib/
-!src/app/lib/**
+# Testing & coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 
-# OS metadata
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# ---------- Tooling, Cache & Scraping Output ----------
+graphify-out/
+logs/
+*.log
+.cache/
+temp/
+tmp/
+
+# ---------- Operating System Metadata ----------
 .DS_Store
+._*
 Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+# ---------- Editors, IDEs & AI tools ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.claude/settings.local.json
+*.sw?
+*~
+*.bak
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
