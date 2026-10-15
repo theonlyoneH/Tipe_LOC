@@ -16,10 +16,11 @@
 [![Leaflet](https://img.shields.io/badge/Leaflet-Geospatial_Map-199900.svg?logo=leaflet&logoColor=white)](https://leafletjs.com)
 
 <p align="center">
-  <a href="https://tipe-theta.vercel.app/"><strong>🌐 Live Web Application</strong></a> •
+  <a href="https://tipe-loc.vercel.app/"><strong>🌐 Live Web Application</strong></a> •
   <a href="https://darshanpurohit-tipe-backend.hf.space/"><strong>⚡ Backend API</strong></a> •
   <a href="https://darshanpurohit-tipe-backend.hf.space/docs"><strong>📖 Interactive Swagger Docs</strong></a> •
-  <a href="docs/TIPE_IMPLEMENTATION_GUIDE.md"><strong>📑 Implementation Guide</strong></a>
+  <a href="docs/TIPE_IMPLEMENTATION_GUIDE.md"><strong>📑 Implementation Guide</strong></a> •
+  <a href="DEPLOYMENT.md"><strong>🚀 Deployment Guide</strong></a>
 </p>
 
 </div>
