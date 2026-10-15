@@ -78,6 +78,9 @@ export interface Lead {
   source_url?: string;
   city?: string;
   description?: string;
+  /** What the company is to the user: exporters see buyers, importers see suppliers. */
+  lead_role?: 'buyer' | 'supplier' | '';
+  role_label?: string;
 }
 
 export interface Sourcing {

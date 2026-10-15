@@ -18,7 +18,7 @@ _FIELDS = [
     "Email", "Contact_Email", "Phone", "Contact_Phone", "LinkedIn", "Website", "Contact_Person",
     # Scraped real-company fields (backend/scraper)
     "Source", "Source_URL", "City", "Description", "LEI", "Verified_Entity", "Buyer_Signal", "Maker_Signal",
-    "Reachable", "Legal_Name",
+    "Reachable", "Legal_Name", "Roles", "Buyer_Type",
 ]
 PROJECTION = {f: 1 for f in _FIELDS}
 
@@ -124,7 +124,34 @@ def normalize(doc: dict, role: str = "") -> dict:
         "source_url": doc.get("Source_URL") or "",
         "city": doc.get("City") or "",
         "description": doc.get("Description") or "",
+        **_relationship(doc, role),
     }
+
+
+def _relationship(doc: dict, role: str) -> dict:
+    """What this company is to the user: exporters see buyers, importers see suppliers."""
+    if role == "exporter":
+        kind = doc.get("Buyer_Type") or ("" if doc.get("Source") else "importer")
+        if kind == "distributor":
+            label = "Buyer · distributor"
+        elif kind:
+            label = f"Buyer · {kind}"
+        else:
+            label = "Buyer"
+        return {"lead_role": "buyer", "role_label": label}
+    if role == "importer":
+        return {"lead_role": "supplier", "role_label": "Supplier · manufacturer" if doc.get("Source") else "Supplier · exporter"}
+    return {"lead_role": "", "role_label": ""}
+
+
+def role_filter(role: str) -> dict:
+    """Scraped pools hold both sides of the trade; keep the side this user trades with."""
+    if role == "exporter":
+        return {"Roles": "buyer"}
+    if role == "importer":
+        # Companies scraped before roles existed all came from the supplier pool.
+        return {"$or": [{"Roles": "supplier"}, {"Roles": {"$exists": False}}]}
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +200,8 @@ async def candidates(user: dict, limit: int) -> List[dict]:
     decided = await decided_ids(user["email"])
     final_ids = [ObjectId(i) for i, s in decided.items() if s in ("approved", "rejected") and ObjectId.is_valid(i)]
     query = industry_filter(user.get("industry", ""), scraped=coll is db.scraped_leads)
+    if coll is db.scraped_leads:
+        query.update(role_filter(user.get("category", "")))
     if final_ids:
         query["_id"] = {"$nin": final_ids}
     cursor = coll.find(query, PROJECTION).sort([("rank", -1), ("Intent_Score", -1)]).limit(limit)

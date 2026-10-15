@@ -222,12 +222,12 @@ export function ApproveLeads() {
       {/* Fade the map under the deck so cards stay readable. */}
       <div className="pointer-events-none absolute inset-0 z-[5] bg-gradient-to-t from-slate-50 via-slate-50/60 to-transparent lg:bg-gradient-to-l lg:from-slate-50/95 lg:via-slate-50/40 lg:to-transparent" />
 
-      <div className="relative z-10 h-full flex flex-col p-4 lg:p-6 pointer-events-none">
+      <div className="relative z-10 h-full flex flex-col p-3 lg:p-5 pointer-events-none">
         {/* Header */}
         <div className="pointer-events-auto flex flex-wrap items-start justify-between gap-3">
-          <div className="bg-white/85 backdrop-blur rounded-2xl px-4 py-3 shadow-sm border border-white">
-            <h1 className="text-xl lg:text-2xl font-bold flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-blue-600" /> Approve Leads
+          <div className="bg-white/85 backdrop-blur rounded-2xl px-4 py-2 shadow-sm border border-white">
+            <h1 className="text-lg lg:text-xl font-bold flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-blue-600" /> Approve Leads
             </h1>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs lg:text-sm mt-0.5 text-slate-600">
               <span>{queue.length} in deck</span>
@@ -250,7 +250,7 @@ export function ApproveLeads() {
         </div>
 
         {/* Deck: right column on desktop (map visible on the left), lower part of the screen on mobile */}
-        <div className="flex-1 min-h-0 flex flex-col w-full lg:w-[min(580px,52%)] lg:ml-auto mt-[14vh] lg:mt-4">
+        <div className="flex-1 min-h-0 flex flex-col w-full lg:w-[min(580px,52%)] lg:ml-auto mt-[8vh] lg:mt-3">
           {!current && (isSourcing(data) || (data?.sourcing?.mode === 'live' && !data.leads.length && !history.length)) ? (
             <div className="pointer-events-auto flex-1 flex items-center justify-center bg-white/90 backdrop-blur rounded-[32px] p-8">
               <SourcingPanel sourcing={data?.sourcing} industry={user?.industry} />
@@ -271,7 +271,7 @@ export function ApproveLeads() {
             </div>
           ) : (
             <>
-              <div className="pointer-events-auto flex-1 relative min-h-[380px]">
+              <div className="pointer-events-auto flex-1 relative min-h-0">
                 {next && (
                   <div className="absolute inset-0 scale-[0.96] translate-y-3 opacity-70 pointer-events-none" aria-hidden>
                     <LeadCardBody lead={next} isTop={false} />
@@ -290,50 +290,50 @@ export function ApproveLeads() {
                     <SwipeCard lead={current} onSwipe={handleSwipe} />
                   </motion.div>
                 </AnimatePresence>
+
+                {/* Why was it rejected? Overlays the card so the buttons never move. */}
+                <AnimatePresence>
+                  {pendingReason && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="absolute inset-x-3 bottom-3 z-20 bg-white/95 backdrop-blur rounded-2xl border border-slate-200 shadow-lg p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2 text-xs">
+                        <span className="font-semibold text-slate-800">Why not {pendingReason.lead.company_name}?</span>
+                        <button onClick={() => setPendingReason(null)} className="text-slate-400 hover:text-slate-600" aria-label="Dismiss">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {reasons.map((r, i) => {
+                          const chosen = pendingReason.chosen === r.key;
+                          const guessed = !pendingReason.chosen && pendingReason.inferred === r.key;
+                          return (
+                            <button
+                              key={r.key}
+                              onClick={() => giveReason(r.key)}
+                              disabled={!!pendingReason.chosen}
+                              className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
+                                chosen ? 'bg-red-600 border-red-600 text-white'
+                                  : guessed ? 'border-red-300 bg-red-50 text-red-700'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              <span className="hidden lg:inline text-slate-400 mr-1">{i + 1}</span>
+                              {r.label}
+                              {guessed && <span className="ml-1 text-[10px] uppercase">· our guess</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
-              {/* Why was it rejected? */}
-              <AnimatePresence>
-                {pendingReason && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    className="pointer-events-auto mt-3 bg-white/95 backdrop-blur rounded-2xl border border-slate-200 shadow-lg p-3"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-2 text-xs">
-                      <span className="font-semibold text-slate-800">Why not {pendingReason.lead.company_name}?</span>
-                      <button onClick={() => setPendingReason(null)} className="text-slate-400 hover:text-slate-600" aria-label="Dismiss">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {reasons.map((r, i) => {
-                        const chosen = pendingReason.chosen === r.key;
-                        const guessed = !pendingReason.chosen && pendingReason.inferred === r.key;
-                        return (
-                          <button
-                            key={r.key}
-                            onClick={() => giveReason(r.key)}
-                            disabled={!!pendingReason.chosen}
-                            className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
-                              chosen ? 'bg-red-600 border-red-600 text-white'
-                                : guessed ? 'border-red-300 bg-red-50 text-red-700'
-                                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="hidden lg:inline text-slate-400 mr-1">{i + 1}</span>
-                            {r.label}
-                            {guessed && <span className="ml-1 text-[10px] uppercase">· our guess</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <div className="pointer-events-auto flex items-center justify-center gap-4 pt-4">
+              <div className="pointer-events-auto flex items-center justify-center gap-4 pt-3 shrink-0">
                 <button onClick={handleUndo} disabled={!history.length} className="w-11 h-11 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 disabled:opacity-40" aria-label="Undo (Z)" title="Undo (Z)">
                   <RotateCcw className="w-5 h-5" />
                 </button>
@@ -347,7 +347,7 @@ export function ApproveLeads() {
                   <Check className="w-7 h-7" />
                 </button>
               </div>
-              <p className="hidden lg:block text-center text-xs text-slate-500 mt-2">← reject · → approve and start outreach · ↑ skip · Z undo · 1-5 rejection reason</p>
+              <p className="hidden lg:block text-center text-xs text-slate-500 mt-1.5 shrink-0">← reject · → approve and start outreach · ↑ skip · Z undo · 1-5 rejection reason</p>
             </>
           )}
         </div>

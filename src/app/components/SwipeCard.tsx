@@ -1,5 +1,5 @@
 import { motion, useMotionValue, useTransform, type PanInfo } from 'motion/react';
-import { ArrowDownRight, ArrowUpRight, Building2, DollarSign, ExternalLink, Globe, Newspaper, Shield, Sparkles, TrendingUp, Users } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, Building2, DollarSign, ExternalLink, Factory, Globe, Newspaper, Shield, ShoppingCart, Sparkles, TrendingUp, Users } from 'lucide-react';
 import type { Lead } from '../lib/types';
 import { useLeadInsight } from '../lib/queries';
 import { CHANNELS, channelOf, flag, formatMoney, pct } from '../lib/utils';
@@ -11,7 +11,7 @@ const ScoreRing = ({ score }: { score: number }) => {
   const circumference = 2 * Math.PI * radius;
   const color = score >= 80 ? '#22c55e' : score >= 65 ? '#f59e0b' : '#ef4444';
   return (
-    <div className="relative w-20 h-20 shrink-0">
+    <div className="relative w-16 h-16 lg:w-[72px] lg:h-[72px] shrink-0">
       <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
         <circle cx="40" cy="40" r={radius} stroke="#f1f5f9" strokeWidth="8" fill="none" />
         <circle
@@ -21,7 +21,7 @@ const ScoreRing = ({ score }: { score: number }) => {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-xl font-black text-slate-900 leading-none">{score}%</span>
+        <span className="text-lg font-black text-slate-900 leading-none">{score}%</span>
         <span className="text-[9px] font-bold text-slate-500 uppercase">Match</span>
       </div>
     </div>
@@ -30,9 +30,9 @@ const ScoreRing = ({ score }: { score: number }) => {
 
 function Metric({ label, value, tone }: { label: string; value: string; tone: string }) {
   return (
-    <div className={`p-3 rounded-xl border ${tone}`}>
-      <div className="text-[11px] font-medium text-slate-600 mb-0.5">{label}</div>
-      <div className="text-xl font-bold tabular-nums">{value}</div>
+    <div className={`px-3 py-2 rounded-xl border ${tone}`}>
+      <div className="text-[11px] font-medium text-slate-600">{label}</div>
+      <div className="text-lg font-bold tabular-nums leading-tight">{value}</div>
     </div>
   );
 }
@@ -43,19 +43,27 @@ export function LeadCardBody({ lead, isTop }: { lead: Lead; isTop: boolean }) {
   const newsDelta = Math.round((lead.news_score - 0.5) * 200);
 
   return (
-    <div className="w-full h-full bg-white rounded-[32px] shadow-xl p-5 lg:p-8 flex flex-col border border-slate-200 overflow-hidden select-none">
+    <div className="w-full h-full bg-white rounded-[32px] shadow-xl p-4 lg:p-6 flex flex-col border border-slate-200 overflow-hidden select-none">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-4">
+      <div className="flex items-start justify-between gap-4 mb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight truncate">{lead.company_name}</h2>
+            <h2 className="text-xl lg:text-2xl font-black text-slate-900 tracking-tight truncate">{lead.company_name}</h2>
             {lead.trust_verified && <Shield className="w-6 h-6 text-green-500 fill-green-50 shrink-0" aria-label="Good payment history" />}
           </div>
-          <p className="text-slate-500 font-medium">
+          <p className="text-sm text-slate-500 font-medium">
             {flag(lead.country)} {lead.city ? `${lead.city}, ` : ''}{lead.country || 'Unknown'} · {lead.industry}
           </p>
           {lead.description && <p className="text-xs text-slate-500 mt-0.5 line-clamp-1" title={lead.description}>{lead.description}</p>}
-          <div className="flex flex-wrap gap-2 mt-2">
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {lead.role_label && (
+              <span
+                className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${lead.lead_role === 'buyer' ? 'bg-blue-600 text-white' : 'bg-amber-100 text-amber-800'}`}
+                title={lead.lead_role === 'buyer' ? 'This company buys what you sell' : 'This company makes what you buy'}
+              >
+                {lead.lead_role === 'buyer' ? <ShoppingCart className="w-3.5 h-3.5" /> : <Factory className="w-3.5 h-3.5" />} {lead.role_label}
+              </span>
+            )}
             <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg ${channel.badge}`}>
               <channel.icon className="w-3.5 h-3.5" /> {channel.label}
             </span>
@@ -84,7 +92,7 @@ export function LeadCardBody({ lead, isTop }: { lead: Lead; isTop: boolean }) {
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-3 gap-3 mb-3">
+      <div className="grid grid-cols-3 gap-2 mb-2">
         <Metric label="Intent" value={pct(lead.intent_score)} tone="bg-blue-50 border-blue-100 text-blue-700" />
         <Metric label="Reply odds" value={pct(lead.response_probability)} tone="bg-purple-50 border-purple-100 text-purple-700" />
         <Metric
@@ -93,10 +101,10 @@ export function LeadCardBody({ lead, isTop }: { lead: Lead; isTop: boolean }) {
           tone={newsDelta > 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : newsDelta < 0 ? 'bg-red-50 border-red-100 text-red-700' : 'bg-slate-50 border-slate-100 text-slate-600'}
         />
       </div>
-      <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
-        <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg"><DollarSign className="w-4 h-4 text-slate-500" /><span className="font-semibold">{formatMoney(lead.revenue_usd)}</span></div>
-        <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg"><Users className="w-4 h-4 text-slate-500" /><span className="font-semibold">{lead.team_size ? lead.team_size.toLocaleString() : '—'}</span></div>
-        <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg truncate"><Building2 className="w-4 h-4 text-slate-500 shrink-0" /><span className="font-semibold truncate">{lead.certification || 'No cert.'}</span></div>
+      <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+        <div className="flex items-center gap-2 px-2.5 py-2 bg-slate-50 rounded-lg"><DollarSign className="w-4 h-4 text-slate-500" /><span className="font-semibold">{formatMoney(lead.revenue_usd)}</span></div>
+        <div className="flex items-center gap-2 px-2.5 py-2 bg-slate-50 rounded-lg"><Users className="w-4 h-4 text-slate-500" /><span className="font-semibold">{lead.team_size ? lead.team_size.toLocaleString() : '—'}</span></div>
+        <div className="flex items-center gap-2 px-2.5 py-2 bg-slate-50 rounded-lg truncate"><Building2 className="w-4 h-4 text-slate-500 shrink-0" /><span className="font-semibold truncate">{lead.certification || 'No cert.'}</span></div>
       </div>
 
       {/* Scrollable detail. Pointer events here don't start a drag, so it can scroll on touch. */}
